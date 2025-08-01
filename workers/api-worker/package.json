@@ -1,0 +1,25 @@
+{
+  "name": "aniflixx-api-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "tsc --noEmit",
+    "test": "vitest",
+    "migrate": "wrangler d1 execute aniflixx-main-db --file=../../shared/database/migrations/api-schema.sql",
+    "migrate:local": "wrangler d1 execute aniflixx-main-db --local --file=../../shared/database/migrations/api-schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.8.10",
+    "nanoid": "^5.0.4",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250801.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.1",
+    "wrangler": "^4.27.0"
+  }
+}
