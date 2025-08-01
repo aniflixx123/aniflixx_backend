@@ -1,0 +1,29 @@
+{
+  "name": "aniflixx-auth-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "tsc --noEmit",
+    "create-db": "wrangler d1 create aniflixx-main-db",
+    "create-kv": "npm run create-kv:sessions && npm run create-kv:ratelimit",
+    "create-kv:sessions": "wrangler kv:namespace create SESSIONS",
+    "create-kv:ratelimit": "wrangler kv:namespace create RATE_LIMIT",
+    "migrate": "wrangler d1 execute aniflixx-main-db --file=../../shared/database/schema.sql",
+    "migrate:local": "wrangler d1 execute aniflixx-main-db --local --file=../../shared/database/schema.sql"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "hono": "^4.8.10",
+    "jsonwebtoken": "^9.0.2",
+    "nanoid": "^5.0.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250801.0",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.3.3",
+    "wrangler": "^4.27.0"
+  }
+}

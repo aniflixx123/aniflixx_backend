@@ -1,0 +1,23 @@
+name = "aniflixx-auth"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+JWT_ISSUER = "aniflixx-auth"
+JWT_EXPIRY = "7d"
+REFRESH_EXPIRY = "30d"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aniflixx-main-db"
+database_id = "2b5513fe-cf8c-4bb5-8872-5e85c38d5e54"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "149694ebcdc14e8cb7c5b091e804caf9"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "722b54f9f1bd4f09a1f09af25cd656e7"
