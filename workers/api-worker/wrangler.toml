@@ -7,6 +7,12 @@ compatibility_flags = ["nodejs_compat"]
 ENVIRONMENT = "production"
 AUTH_WORKER_URL = "https://aniflixx-auth.workers.dev"
 MEDIA_WORKER_URL = "https://aniflixx-media.workers.dev"
+# Add your Cloudflare Stream customer code here
+CLOUDFLARE_STREAM_CUSTOMER_CODE = "jvg1dxngjkn57j9y"
+
+# Secrets - Set these via command line:
+# wrangler secret put CLOUDFLARE_ACCOUNT_ID
+# wrangler secret put CLOUDFLARE_API_TOKEN
 
 [[d1_databases]]
 binding = "DB"
@@ -21,10 +27,24 @@ id = "213dae65137c472ba25b69159b3ca570"
 binding = "RATE_LIMIT"
 id = "722b54f9f1bd4f09a1f09af25cd656e7"
 
-[[ durable_objects.bindings ]]
+# Durable Objects for counters
+[[durable_objects.bindings]]
 name = "POST_COUNTERS"
 class_name = "PostCounter"
 
+[[durable_objects.bindings]]
+name = "FLICK_COUNTERS"
+class_name = "FlickCounter"
+
+[[durable_objects.bindings]]
+name = "VIEWER_TRACKER"
+class_name = "ViewerTracker"
+
+# Migrations
 [[migrations]]
 tag = "v1"
 new_classes = ["PostCounter"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["FlickCounter", "ViewerTracker"]

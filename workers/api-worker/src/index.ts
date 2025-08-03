@@ -8,6 +8,9 @@ import { postsRouter } from './routes/posts';
 import { usersRouter } from './routes/users';
 import { feedRouter } from './routes/feed';
 import { socialRouter } from './routes/social';
+import { flicksRouter } from './routes/flicks';
+import { commentsRouter } from './routes/comments';
+import { analyticsRouter } from './routes/analytics';
 import type { Env } from './types';
 
 type Variables = {
@@ -53,7 +56,7 @@ app.get('/', (c) => {
   });
 });
 
-// Public trending endpoint
+// Public trending endpoints
 app.get('/api/feed/trending', async (c) => {
   const { FeedService } = await import('./services/feed.service');
   const feedService = new FeedService(c.env.DB, c.env.CACHE);
@@ -81,6 +84,39 @@ app.get('/api/feed/trending', async (c) => {
   }
 });
 
+// Public trending flicks endpoint
+app.get('/api/flicks/trending', async (c) => {
+  const { FlicksService } = await import('./services/flicks.service');
+  const flicksService = new FlicksService(
+    c.env.DB, 
+    c.env.CACHE,
+    c.env.CLOUDFLARE_ACCOUNT_ID,
+    c.env.CLOUDFLARE_API_TOKEN,
+    c.env.CLOUDFLARE_STREAM_CUSTOMER_CODE
+  );
+  
+  const page = parseInt(c.req.query('page') || '1');
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  
+  try {
+    const result = await flicksService.getTrendingFlicks(page, limit);
+    
+    return c.json({
+      success: true,
+      data: result.flicks,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore
+      }
+    });
+  } catch (error) {
+    console.error('Get trending flicks error:', error);
+    return c.json({ success: false, error: 'Failed to get trending flicks' }, 500);
+  }
+});
+
 // Protected routes - require authentication
 app.use('/api/*', authMiddleware);
 
@@ -89,6 +125,9 @@ app.route('/api/posts', postsRouter);
 app.route('/api/users', usersRouter);
 app.route('/api/feed', feedRouter);
 app.route('/api/social', socialRouter);
+app.route('/api/flicks', flicksRouter);
+app.route('/api/comments', commentsRouter);
+app.route('/api/analytics', analyticsRouter);
 
 // 404 handler
 app.notFound((c) => {
@@ -148,6 +187,173 @@ export class PostCounter implements DurableObject {
     }
     
     return new Response('Not found', { status: 404 });
+  }
+}
+
+// Durable Object for flick counters
+export class FlickCounter implements DurableObject {
+  constructor(private state: DurableObjectState) {}
+  
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    
+    if (path === '/increment') {
+      const { field } = await request.json() as { field: string };
+      const current = await this.state.storage.get<number>(field) || 0;
+      await this.state.storage.put(field, current + 1);
+      return new Response(JSON.stringify({ count: current + 1 }));
+    }
+    
+    if (path === '/decrement') {
+      const { field } = await request.json() as { field: string };
+      const current = await this.state.storage.get<number>(field) || 0;
+      const newCount = Math.max(0, current - 1);
+      await this.state.storage.put(field, newCount);
+      return new Response(JSON.stringify({ count: newCount }));
+    }
+    
+    if (path === '/get') {
+      const counts = await this.state.storage.list();
+      const result: Record<string, number> = {};
+      counts.forEach((value, key) => {
+        result[key as string] = value as number;
+      });
+      return new Response(JSON.stringify(result));
+    }
+    
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+// Durable Object for viewer tracking
+export class ViewerTracker implements DurableObject {
+  state: DurableObjectState;
+  viewers: Map<string, { userId: string; lastHeartbeat: number }>;
+
+  constructor(state: DurableObjectState) {
+    this.state = state;
+    this.viewers = new Map();
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    switch (path) {
+      case '/register':
+        return this.handleRegister(request);
+      case '/heartbeat':
+        return this.handleHeartbeat(request);
+      case '/deregister':
+        return this.handleDeregister(request);
+      case '/count':
+        return this.handleCount();
+      default:
+        return new Response('Not Found', { status: 404 });
+    }
+  }
+
+  async handleRegister(request: Request): Promise<Response> {
+    try {
+      const { userId, sessionId } = await request.json() as any;
+      
+      this.cleanupStaleViewers();
+      
+      this.viewers.set(sessionId, {
+        userId,
+        lastHeartbeat: Date.now(),
+      });
+
+      await this.state.storage.put('viewers', Array.from(this.viewers.entries()));
+
+      return new Response(JSON.stringify({
+        success: true,
+        viewerCount: this.viewers.size,
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Failed to register viewer' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  async handleHeartbeat(request: Request): Promise<Response> {
+    try {
+      const { sessionId } = await request.json() as any;
+      
+      const viewer = this.viewers.get(sessionId);
+      if (viewer) {
+        viewer.lastHeartbeat = Date.now();
+        await this.state.storage.put('viewers', Array.from(this.viewers.entries()));
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        viewerCount: this.viewers.size,
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Failed to update heartbeat' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  async handleDeregister(request: Request): Promise<Response> {
+    try {
+      const { sessionId } = await request.json() as any;
+      
+      this.viewers.delete(sessionId);
+      await this.state.storage.put('viewers', Array.from(this.viewers.entries()));
+
+      return new Response(JSON.stringify({
+        success: true,
+        viewerCount: this.viewers.size,
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Failed to deregister viewer' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  async handleCount(): Promise<Response> {
+    this.cleanupStaleViewers();
+    
+    return new Response(JSON.stringify({
+      count: this.viewers.size,
+      viewers: Array.from(this.viewers.values()),
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  cleanupStaleViewers() {
+    const now = Date.now();
+    const timeout = 30000; // 30 seconds
+
+    for (const [sessionId, viewer] of this.viewers.entries()) {
+      if (now - viewer.lastHeartbeat > timeout) {
+        this.viewers.delete(sessionId);
+      }
+    }
+  }
+
+  async initialize() {
+    const stored = await this.state.storage.get('viewers');
+    if (stored) {
+      this.viewers = new Map(stored as any);
+      this.cleanupStaleViewers();
+    }
   }
 }
 
