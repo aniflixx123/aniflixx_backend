@@ -1,3 +1,4 @@
+// workers/auth-worker/src/routes/login.ts
 import { nanoid } from 'nanoid';
 import type { Context } from 'hono';
 import type { Env, User } from '../types';
@@ -18,7 +19,7 @@ export async function login(c: Context<{ Bindings: Env; Variables: Variables }>)
     
     // Find user
     const user = await c.env.DB.prepare(
-      'SELECT * FROM users WHERE email = ? AND is_active = TRUE'
+      'SELECT * FROM users WHERE email = ? AND is_active = 1'
     ).bind(email.toLowerCase()).first<User>();
     
     if (!user) {
@@ -32,7 +33,7 @@ export async function login(c: Context<{ Bindings: Env; Variables: Variables }>)
     }
     
     // Generate JWT
-    const token = generateToken(
+    const token = await generateToken(
       {
         sub: user.id,
         email: user.email,
@@ -68,6 +69,7 @@ export async function login(c: Context<{ Bindings: Env; Variables: Variables }>)
       token,
       user: {
         id: user.id,
+        uid: user.id,
         email: user.email,
         username: user.username,
         profile_image: user.profile_image,

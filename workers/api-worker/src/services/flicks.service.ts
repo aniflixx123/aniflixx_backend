@@ -14,51 +14,68 @@ export class FlicksService {
   ) {}
 
   async generateUploadUrl(userId: string, data: {
-    title: string;
-    description?: string;
-    hashtags?: string[];
-  }) {
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/stream/direct_upload`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          maxDurationSeconds: 3600,
-          expiry: new Date(Date.now() + 3600000).toISOString(),
-          requireSignedURLs: false,
-          thumbnailTimestampPct: 0.1,
-          meta: {
-            userId,
-            title: data.title,
-            description: data.description,
-            uploadedAt: new Date().toISOString(),
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Failed to generate upload URL');
-    }
-
-    const result = await response.json() as any;
-
-    return {
-      uploadUrl: result.result.uploadURL,
-      videoId: result.result.uid,
-      provider: 'cloudflare-stream',
-      expiresIn: 3600,
-      instructions: {
-        method: 'POST',
-        formFields: { file: 'your-video-file' },
+  title: string;
+  description?: string;
+  hashtags?: string[];
+}) {
+  console.log('🎬 Generating upload URL for user:', userId);
+  console.log('📊 Request data:', data);
+  console.log('🔑 Account ID:', this.accountId);
+  console.log('🔐 Has API token:', !!this.apiToken);
+  
+  const requestBody = {
+    maxDurationSeconds: 3600,
+    expiry: new Date(Date.now() + 3600000).toISOString(),
+    requireSignedURLs: false,
+    thumbnailTimestampPct: 0.1,
+    meta: {
+      userId,
+      title: data.title,
+      description: data.description,
+      uploadedAt: new Date().toISOString(),
+    },
+  };
+  
+  console.log('📤 Request URL:', `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/stream/direct_upload`);
+  
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/stream/direct_upload`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiToken}`,
+        'Content-Type': 'application/json',
       },
-    };
+      body: JSON.stringify(requestBody),
+    }
+  );
+
+  console.log('📥 Response status:', response.status);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('❌ Cloudflare Stream API error:', {
+      status: response.status,
+      error: errorText
+    });
+    
+    throw new Error('Failed to generate upload URL');
   }
 
+  const result = await response.json() as any;
+  console.log('✅ Upload URL generated successfully');
+
+  return {
+    uploadUrl: result.result.uploadURL,
+    videoId: result.result.uid,
+    provider: 'cloudflare-stream',
+    expiresIn: 3600,
+    instructions: {
+      method: 'POST',
+      formFields: { file: 'your-video-file' },
+    },
+  };
+}
   async registerFlick(userId: string, data: {
     videoId: string;
     title: string;
@@ -116,9 +133,9 @@ export class FlicksService {
     `).bind(flickId).run();
 
     // Update user's flicks count
-    await this.db.prepare(
-      'UPDATE users SET flicks_count = flicks_count + 1 WHERE id = ?'
-    ).bind(userId).run();
+    // await this.db.prepare(
+    //   'UPDATE users SET flicks_count = flicks_count + 1 WHERE id = ?'
+    // ).bind(userId).run();
 
     // Clear user's flicks cache
     await this.cache.delete(`user_flicks:${userId}`);
@@ -376,9 +393,9 @@ export class FlicksService {
     ).bind('deleted', new Date().toISOString(), flickId).run();
 
     // Update user's flicks count
-    await this.db.prepare(
-      'UPDATE users SET flicks_count = flicks_count - 1 WHERE id = ? AND flicks_count > 0'
-    ).bind(userId).run();
+    // await this.db.prepare(
+    //   'UPDATE users SET flicks_count = flicks_count - 1 WHERE id = ? AND flicks_count > 0'
+    // ).bind(userId).run();
 
     // Clear caches
     await this.cache.delete(`flick:${flickId}`);

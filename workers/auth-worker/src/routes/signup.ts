@@ -1,3 +1,4 @@
+// workers/auth-worker/src/routes/signup.ts
 import { nanoid } from 'nanoid';
 import type { Context } from 'hono';
 import type { Env } from '../types';
@@ -61,7 +62,7 @@ export async function signup(c: Context<{ Bindings: Env; Variables: Variables }>
     ).run();
     
     // Generate JWT
-    const token = generateToken(
+    const token = await generateToken(
       {
         sub: userId,
         email: email.toLowerCase(),
@@ -74,14 +75,14 @@ export async function signup(c: Context<{ Bindings: Env; Variables: Variables }>
     
     // Store session
     const sessionId = nanoid();
-    const tokenHash = await hashPassword(token); // Hash token for storage
+    const tokenHash = await hashPassword(token);
     
     await c.env.DB.prepare(`
       INSERT INTO sessions (id, user_id, token_hash, expires_at)
       VALUES (?, ?, ?, datetime('now', '+7 days'))
     `).bind(sessionId, userId, tokenHash).run();
     
-    // Also store in KV for fast lookups
+    // Store in KV
     await c.env.SESSIONS.put(
       `session:${userId}:${sessionId}`,
       JSON.stringify({
@@ -89,7 +90,7 @@ export async function signup(c: Context<{ Bindings: Env; Variables: Variables }>
         email: email.toLowerCase(),
         username: username?.toLowerCase()
       }),
-      { expirationTtl: 604800 } // 7 days
+      { expirationTtl: 604800 }
     );
     
     return c.json({
@@ -97,6 +98,7 @@ export async function signup(c: Context<{ Bindings: Env; Variables: Variables }>
       token,
       user: {
         id: userId,
+        uid: userId,
         email: email.toLowerCase(),
         username: username?.toLowerCase() || null
       }

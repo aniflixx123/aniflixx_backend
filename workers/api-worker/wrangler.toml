@@ -5,9 +5,8 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
-AUTH_WORKER_URL = "https://aniflixx-auth.workers.dev"
-MEDIA_WORKER_URL = "https://aniflixx-media.workers.dev"
-# Add your Cloudflare Stream customer code here
+AUTH_WORKER_URL = "https://aniflixx-auth.black-poetry-4fa5.workers.dev"
+MEDIA_WORKER_URL = "https://aniflixx-media.black-poetry-4fa5.workers.dev"
 CLOUDFLARE_STREAM_CUSTOMER_CODE = "jvg1dxngjkn57j9y"
 
 # Secrets - Set these via command line:

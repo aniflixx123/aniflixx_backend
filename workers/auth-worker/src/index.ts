@@ -58,6 +58,19 @@ app.post('/auth/login', login);
 app.post('/auth/verify', verify);
 
 // Health check
+app.post('/auth/test-verify', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    return c.json({ 
+      success: true,
+      hasAuth: !!authHeader,
+      authValue: authHeader?.substring(0, 50) + '...'
+    });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 app.get('/', (c) => {
   return c.json({ 
     service: 'aniflixx-auth',
