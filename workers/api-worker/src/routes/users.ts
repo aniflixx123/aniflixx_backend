@@ -22,45 +22,120 @@ const updateProfileSchema = z.object({
   profile_image: z.string().url().optional()
 });
 
-// Get current user profile
+// workers/api-worker/src/routes/users.ts
+// Fixed /me endpoint with better error handling
+
+// Get current user profile - FIXED VERSION
 router.get('/me', async (c) => {
   try {
+    console.log('/users/me: Starting request');
+    
     const user = c.get('user');
+    console.log('/users/me: User from context:', user);
+    
     if (!user) {
-      return c.json({ success: false, error: 'Unauthorized' }, 401);
+      console.error('/users/me: No user in context - auth middleware failed?');
+      return c.json({ success: false, error: 'Unauthorized - no user in context' }, 401);
     }
     
     // Try cache first
     const cacheKey = `user:${user.id}`;
-    const cached = await c.env.CACHE.get(cacheKey, 'json');
-    if (cached) {
-      return c.json({ success: true, data: cached });
+    try {
+      const cached = await c.env.CACHE.get(cacheKey, 'json');
+      if (cached) {
+        console.log('/users/me: Returning cached data');
+        return c.json({ success: true, data: cached });
+      }
+    } catch (cacheError) {
+      console.warn('/users/me: Cache error (non-fatal):', cacheError);
     }
     
     // Get from database
+    console.log('/users/me: Fetching from database for user:', user.id);
+    
     const userData = await c.env.DB.prepare(`
       SELECT 
         id, email, username, profile_image, bio,
-        followers_count, following_count, posts_count,
-        is_verified, created_at, updated_at
+        followers_count, following_count, posts_count, flicks_count,
+        is_verified, is_active, created_at, updated_at
       FROM users 
       WHERE id = ?
     `).bind(user.id).first();
     
+    console.log('/users/me: Database query result:', userData ? 'Found' : 'Not found');
+    
     if (!userData) {
-      return c.json({ success: false, error: 'User not found' }, 404);
+      console.error('/users/me: User not found in database:', user.id);
+      return c.json({ success: false, error: 'User not found in database' }, 404);
     }
     
-    // Cache for 10 minutes
-    await c.env.CACHE.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 600
-    });
+    // Ensure user is active
+    if (!userData.is_active) {
+      console.error('/users/me: User is inactive:', user.id);
+      return c.json({ success: false, error: 'User account is inactive' }, 403);
+    }
     
-    return c.json({ success: true, data: userData });
+    console.log('/users/me: User data retrieved successfully');
     
-  } catch (error) {
-    console.error('Get user profile error:', error);
-    return c.json({ success: false, error: 'Failed to get profile' }, 500);
+    // Format response to match frontend expectations
+    const responseData = {
+      id: userData.id,
+      uid: userData.id, // Add uid for compatibility
+      email: userData.email,
+      username: userData.username,
+      profile_image: userData.profile_image,
+      profileImage: userData.profile_image, // Add alternative field name
+      bio: userData.bio,
+      followers_count: userData.followers_count || 0,
+      followersCount: userData.followers_count || 0, // Alternative field name
+      following_count: userData.following_count || 0,
+      followingCount: userData.following_count || 0, // Alternative field name
+      posts_count: userData.posts_count || 0,
+      flicks_count: userData.flicks_count || 0,
+      is_verified: userData.is_verified || false,
+      isVerified: userData.is_verified || false, // Alternative field name
+      is_active: userData.is_active,
+      created_at: userData.created_at,
+      updated_at: userData.updated_at
+    };
+    
+    // Try to cache (non-blocking)
+    try {
+      await c.env.CACHE.put(cacheKey, JSON.stringify(responseData), {
+        expirationTtl: 600 // 10 minutes
+      });
+      console.log('/users/me: Cached user data');
+    } catch (cacheError) {
+      console.warn('/users/me: Failed to cache (non-fatal):', cacheError);
+    }
+    
+    console.log('/users/me: Returning success response');
+    return c.json({ success: true, data: responseData });
+    
+  } catch (error: any) {
+    console.error('/users/me: Unexpected error:', error);
+    console.error('/users/me: Error message:', error.message);
+    console.error('/users/me: Error stack:', error.stack);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Failed to get profile';
+    
+    if (error.message?.includes('D1_ERROR')) {
+      errorMessage = 'Database error occurred';
+    } else if (error.message?.includes('no such table')) {
+      errorMessage = 'Database not properly configured';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    return c.json({ 
+      success: false, 
+      error: errorMessage,
+      details: c.env.ENVIRONMENT === 'development' ? {
+        message: error.message,
+        stack: error.stack
+      } : undefined
+    }, 500);
   }
 });
 

@@ -11,6 +11,7 @@ import { socialRouter } from './routes/social';
 import { flicksRouter } from './routes/flicks';
 import { commentsRouter } from './routes/comments';
 import { analyticsRouter } from './routes/analytics';
+import { mediaRouter } from './routes/media';
 import type { Env } from './types';
 
 type Variables = {
@@ -128,6 +129,8 @@ app.route('/api/social', socialRouter);
 app.route('/api/flicks', flicksRouter);
 app.route('/api/comments', commentsRouter);
 app.route('/api/analytics', analyticsRouter);
+app.route('/api/media', mediaRouter);
+
 
 // 404 handler
 app.notFound((c) => {
