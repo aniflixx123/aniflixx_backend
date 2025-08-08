@@ -139,57 +139,47 @@ router.get('/me', async (c) => {
   }
 });
 
-// Get user by ID
-router.get('/:userId', async (c) => {
+// Search users
+router.get('/search', async (c) => {
   try {
-    const userId = c.req.param('userId');
-    const currentUser = c.get('user');
+    const query = c.req.query('q');
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+    const offset = (page - 1) * limit;
     
-    // Try cache first
-    const cacheKey = `user:${userId}`;
-    const cached = await c.env.CACHE.get(cacheKey, 'json');
-    if (cached) {
-      return c.json({ success: true, data: cached });
+    if (!query || query.length < 2) {
+      return c.json({ 
+        success: false, 
+        error: 'Search query must be at least 2 characters' 
+      }, 400);
     }
     
-    // Get from database
-    const userData = await c.env.DB.prepare(`
+    // Search by username (prefix match)
+    const users = await c.env.DB.prepare(`
       SELECT 
         id, username, profile_image, bio,
-        followers_count, following_count, posts_count,
-        is_verified, created_at
-      FROM users 
-      WHERE id = ?
-    `).bind(userId).first();
+        followers_count, is_verified
+      FROM users
+      WHERE username LIKE ?
+      ORDER BY 
+        CASE WHEN username = ? THEN 0 ELSE 1 END,
+        followers_count DESC
+      LIMIT ? OFFSET ?
+    `).bind(`${query}%`, query, limit, offset).all();
     
-    if (!userData) {
-      return c.json({ success: false, error: 'User not found' }, 404);
-    }
-    
-    // Add following status if current user is authenticated
-    let isFollowing = false;
-    if (currentUser && currentUser.id !== userId) {
-      const follow = await c.env.DB.prepare(
-        'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
-      ).bind(currentUser.id, userId).first();
-      isFollowing = !!follow;
-    }
-    
-    const result = {
-      ...userData,
-      isFollowing
-    };
-    
-    // Cache for 10 minutes
-    await c.env.CACHE.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 600
+    return c.json({
+      success: true,
+      data: users.results,
+      pagination: {
+        page,
+        limit,
+        hasMore: users.results.length === limit
+      }
     });
     
-    return c.json({ success: true, data: result });
-    
   } catch (error) {
-    console.error('Get user by ID error:', error);
-    return c.json({ success: false, error: 'Failed to get user' }, 500);
+    console.error('Search users error:', error);
+    return c.json({ success: false, error: 'Failed to search users' }, 500);
   }
 });
 
@@ -281,6 +271,59 @@ router.put('/me', async (c) => {
   } catch (error) {
     console.error('Update profile error:', error);
     return c.json({ success: false, error: 'Failed to update profile' }, 500);
+  }
+});
+// Get user by ID
+router.get('/:userId', async (c) => {
+  try {
+    const userId = c.req.param('userId');
+    const currentUser = c.get('user');
+    
+    // Try cache first
+    const cacheKey = `user:${userId}`;
+    const cached = await c.env.CACHE.get(cacheKey, 'json');
+    if (cached) {
+      return c.json({ success: true, data: cached });
+    }
+    
+    // Get from database
+    const userData = await c.env.DB.prepare(`
+      SELECT 
+        id, username, profile_image, bio,
+        followers_count, following_count, posts_count,
+        is_verified, created_at
+      FROM users 
+      WHERE id = ?
+    `).bind(userId).first();
+    
+    if (!userData) {
+      return c.json({ success: false, error: 'User not found' }, 404);
+    }
+    
+    // Add following status if current user is authenticated
+    let isFollowing = false;
+    if (currentUser && currentUser.id !== userId) {
+      const follow = await c.env.DB.prepare(
+        'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
+      ).bind(currentUser.id, userId).first();
+      isFollowing = !!follow;
+    }
+    
+    const result = {
+      ...userData,
+      isFollowing
+    };
+    
+    // Cache for 10 minutes
+    await c.env.CACHE.put(cacheKey, JSON.stringify(userData), {
+      expirationTtl: 600
+    });
+    
+    return c.json({ success: true, data: result });
+    
+  } catch (error) {
+    console.error('Get user by ID error:', error);
+    return c.json({ success: false, error: 'Failed to get user' }, 500);
   }
 });
 
@@ -382,48 +425,6 @@ router.get('/:userId/following', async (c) => {
   }
 });
 
-// Search users
-router.get('/search', async (c) => {
-  try {
-    const query = c.req.query('q');
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-    const offset = (page - 1) * limit;
-    
-    if (!query || query.length < 2) {
-      return c.json({ 
-        success: false, 
-        error: 'Search query must be at least 2 characters' 
-      }, 400);
-    }
-    
-    // Search by username (prefix match)
-    const users = await c.env.DB.prepare(`
-      SELECT 
-        id, username, profile_image, bio,
-        followers_count, is_verified
-      FROM users
-      WHERE username LIKE ?
-      ORDER BY 
-        CASE WHEN username = ? THEN 0 ELSE 1 END,
-        followers_count DESC
-      LIMIT ? OFFSET ?
-    `).bind(`${query}%`, query, limit, offset).all();
-    
-    return c.json({
-      success: true,
-      data: users.results,
-      pagination: {
-        page,
-        limit,
-        hasMore: users.results.length === limit
-      }
-    });
-    
-  } catch (error) {
-    console.error('Search users error:', error);
-    return c.json({ success: false, error: 'Failed to search users' }, 500);
-  }
-});
+
 
 export { router as usersRouter };
