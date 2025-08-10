@@ -3,9 +3,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import type { Env, Post } from '../types';
 import { PostService } from '../services/post.service';
 import { validateRequest } from '../utils/validation';
+import type { Env } from '../types';
 
 type Variables = {
   user?: {
@@ -20,17 +20,17 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Validation schemas
 const createPostSchema = z.object({
   content: z.string().min(1).max(5000),
-  media_urls: z.array(z.string().url()).optional().nullable(),
+  media_urls: z.array(z.string().url()).optional(),
   type: z.enum(['text', 'image', 'video']).default('text'),
   visibility: z.enum(['public', 'followers', 'clan']).default('public'),
-  clan_id: z.string().optional().nullable()
+  clan_id: z.string().optional()
 });
-
-type CreatePostInput = z.infer<typeof createPostSchema>;
 
 const updatePostSchema = z.object({
   content: z.string().min(1).max(5000).optional(),
-  visibility: z.enum(['public', 'followers', 'clan']).optional()
+  media_urls: z.array(z.string().url()).optional(),
+  visibility: z.enum(['public', 'followers', 'clan']).optional(),
+  clan_id: z.string().optional()
 });
 
 // Create post
@@ -42,18 +42,7 @@ router.post('/', async (c) => {
     }
     
     const body = await c.req.json();
-    
-    // Manually validate and apply defaults
-    const postInput = {
-      content: body.content,
-      media_urls: body.media_urls || null,
-      type: body.type || 'text',
-      visibility: body.visibility || 'public',
-      clan_id: body.clan_id || null
-    };
-    
-    // Validate the modified input
-    const validated = validateRequest(createPostSchema, postInput);
+    const validated = validateRequest(createPostSchema, body);
     
     if (!validated.success) {
       return c.json({ 
@@ -242,6 +231,128 @@ router.get('/user/:userId', async (c) => {
       success: false, 
       error: 'Failed to get user posts' 
     }, 500);
+  }
+});
+
+// Bookmark/Save post endpoint
+router.post('/:id/bookmark', async (c) => {
+  try {
+    const postId = c.req.param('id');
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    // Check if post exists
+    const post = await c.env.DB.prepare(
+      'SELECT id FROM posts WHERE id = ?'
+    ).bind(postId).first();
+    
+    if (!post) {
+      return c.json({ success: false, error: 'Post not found' }, 404);
+    }
+    
+    // Check if already bookmarked
+    const existing = await c.env.DB.prepare(
+      'SELECT 1 FROM post_bookmarks WHERE user_id = ? AND post_id = ?'
+    ).bind(user.id, postId).first();
+    
+    if (existing) {
+      // Unbookmark
+      await c.env.DB.prepare(
+        'DELETE FROM post_bookmarks WHERE user_id = ? AND post_id = ?'
+      ).bind(user.id, postId).run();
+      
+      // Invalidate cache
+      await c.env.CACHE.delete(`post:${postId}`);
+      
+      return c.json({ 
+        success: true, 
+        message: 'Post unbookmarked',
+        data: { bookmarked: false }
+      });
+    } else {
+      // Bookmark
+      await c.env.DB.prepare(
+        'INSERT INTO post_bookmarks (user_id, post_id, created_at) VALUES (?, ?, ?)'
+      ).bind(user.id, postId, new Date().toISOString()).run();
+      
+      // Invalidate cache
+      await c.env.CACHE.delete(`post:${postId}`);
+      
+      return c.json({ 
+        success: true, 
+        message: 'Post bookmarked',
+        data: { bookmarked: true }
+      });
+    }
+  } catch (error) {
+    console.error('Bookmark post error:', error);
+    return c.json({ success: false, error: 'Failed to bookmark post' }, 500);
+  }
+});
+
+// Report post endpoint
+router.post('/:id/report', async (c) => {
+  try {
+    const postId = c.req.param('id');
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    const body = await c.req.json();
+    const reportSchema = z.object({
+      reason: z.string().min(1).max(100),
+      description: z.string().max(500).optional()
+    });
+    
+    const validated = validateRequest(reportSchema, body);
+    if (!validated.success) {
+      return c.json({ 
+        success: false, 
+        error: 'Invalid input',
+        details: validated.errors 
+      }, 400);
+    }
+    
+    // Check if post exists
+    const post = await c.env.DB.prepare(
+      'SELECT id FROM posts WHERE id = ?'
+    ).bind(postId).first();
+    
+    if (!post) {
+      return c.json({ success: false, error: 'Post not found' }, 404);
+    }
+    
+    // Check if already reported by this user
+    const existingReport = await c.env.DB.prepare(
+      'SELECT id FROM reports WHERE type = ? AND target_id = ? AND reporter_id = ? AND status = ?'
+    ).bind('post', postId, user.id, 'pending').first();
+    
+    if (existingReport) {
+      return c.json({ success: false, error: 'You have already reported this post' }, 400);
+    }
+    
+    // Create report
+    await c.env.DB.prepare(`
+      INSERT INTO reports (id, type, target_id, reporter_id, reason, description, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      nanoid(),
+      'post',
+      postId,
+      user.id,
+      validated.data.reason,
+      validated.data.description || null,
+      'pending',
+      new Date().toISOString()
+    ).run();
+    
+    return c.json({ success: true, message: 'Post reported successfully' });
+  } catch (error) {
+    console.error('Report post error:', error);
+    return c.json({ success: false, error: 'Failed to report post' }, 500);
   }
 });
 

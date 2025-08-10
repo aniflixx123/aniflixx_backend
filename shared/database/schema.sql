@@ -133,18 +133,40 @@ CREATE TABLE IF NOT EXISTS follows (
   CHECK (follower_id != following_id)
 );
 
--- Hub comments (for posts)
+-- Hub comments (for posts) - WITH likes_count column included
 CREATE TABLE IF NOT EXISTS post_comments (
   id TEXT PRIMARY KEY,
   post_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   content TEXT NOT NULL,
   parent_id TEXT,
+  likes_count INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (parent_id) REFERENCES post_comments(id) ON DELETE CASCADE
+);
+
+-- Post bookmarks table
+CREATE TABLE IF NOT EXISTS post_bookmarks (
+  user_id TEXT NOT NULL,
+  post_id TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, post_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+-- Post comment likes table
+CREATE TABLE IF NOT EXISTS post_comment_likes (
+  id TEXT PRIMARY KEY,
+  comment_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (comment_id) REFERENCES post_comments(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE(comment_id, user_id)
 );
 
 -- Flick comments
@@ -301,3 +323,9 @@ CREATE INDEX IF NOT EXISTS idx_post_likes_post ON post_likes(post_id);
 CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, is_read, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_clan_members_user ON clan_members(user_id);
+
+-- Additional indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_post_bookmarks_user ON post_bookmarks(user_id);
+CREATE INDEX IF NOT EXISTS idx_post_bookmarks_post ON post_bookmarks(post_id);
+CREATE INDEX IF NOT EXISTS idx_post_comment_likes_comment ON post_comment_likes(comment_id);
+CREATE INDEX IF NOT EXISTS idx_post_comment_likes_user ON post_comment_likes(user_id);

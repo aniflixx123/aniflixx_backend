@@ -12,6 +12,8 @@ import { flicksRouter } from './routes/flicks';
 import { commentsRouter } from './routes/comments';
 import { analyticsRouter } from './routes/analytics';
 import { mediaRouter } from './routes/media';
+import { postCommentsRouter } from './routes/postComments';
+import { clansRouter } from './routes/clans'; // ADD THIS IMPORT
 import type { Env } from './types';
 
 type Variables = {
@@ -41,7 +43,7 @@ app.use('*', cors({
     return null;
   },
   credentials: true,
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -118,6 +120,81 @@ app.get('/api/flicks/trending', async (c) => {
   }
 });
 
+// Public clan endpoints (some clan endpoints should be public)
+app.get('/api/clans/discover', async (c) => {
+  const { ClanService } = await import('./services/clan.service');
+  const clanService = new ClanService(c.env.DB, c.env.CACHE);
+  
+  const page = parseInt(c.req.query('page') || '1');
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  
+  try {
+    const result = await clanService.discoverClans({
+      page,
+      limit,
+      userId: undefined // Public discovery
+    });
+    
+    return c.json({
+      success: true,
+      clans: result.clans,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore
+      }
+    });
+  } catch (error) {
+    console.error('Discover clans error:', error);
+    return c.json({ success: false, error: 'Failed to discover clans' }, 500);
+  }
+});
+
+app.get('/api/clans/trending', async (c) => {
+  const { ClanService } = await import('./services/clan.service');
+  const clanService = new ClanService(c.env.DB, c.env.CACHE);
+  
+  const timeframe = c.req.query('timeframe') || 'week';
+  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
+  
+  try {
+    const result = await clanService.getTrendingClans(timeframe, limit);
+    
+    return c.json({
+      success: true,
+      clans: result.clans
+    });
+  } catch (error) {
+    console.error('Get trending clans error:', error);
+    return c.json({ success: false, error: 'Failed to fetch trending clans' }, 500);
+  }
+});
+
+// Public clan details (allow viewing clan details without auth)
+app.get('/api/clans/:id', async (c) => {
+  const { ClanService } = await import('./services/clan.service');
+  const clanService = new ClanService(c.env.DB, c.env.CACHE);
+  
+  const clanId = c.req.param('id');
+  
+  try {
+    const clan = await clanService.getClanDetails(clanId, undefined);
+    
+    if (!clan) {
+      return c.json({ success: false, error: 'Clan not found' }, 404);
+    }
+    
+    return c.json({
+      success: true,
+      data: clan
+    });
+  } catch (error) {
+    console.error('Get clan details error:', error);
+    return c.json({ success: false, error: 'Failed to fetch clan details' }, 500);
+  }
+});
+
 // Protected routes - require authentication
 app.use('/api/*', authMiddleware);
 
@@ -128,9 +205,10 @@ app.route('/api/feed', feedRouter);
 app.route('/api/social', socialRouter);
 app.route('/api/flicks', flicksRouter);
 app.route('/api/comments', commentsRouter);
+app.route('/api/post-comments', postCommentsRouter);
 app.route('/api/analytics', analyticsRouter);
 app.route('/api/media', mediaRouter);
-
+app.route('/api/clans', clansRouter); // ADD THIS LINE - Mount clans router
 
 // 404 handler
 app.notFound((c) => {
