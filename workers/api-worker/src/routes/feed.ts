@@ -24,17 +24,13 @@ router.get('/home', async (c) => {
     
     const feedService = new FeedService(c.env.DB, c.env.CACHE);
     
-    let result;
-    if (user) {
-      result = await feedService.getHomeFeed(user.id, page, limit);
-    } else {
-      // For anonymous users, show trending
-      result = await feedService.getTrendingFeed('24h', page, limit);
-    }
+    // Both logged-in and anonymous users see all public posts
+    // This is how X works - everyone sees everything
+    const result = await feedService.getPublicFeed(user?.id, page, limit);
     
     return c.json({
       success: true,
-      data: result.posts,  // FIX: Always use 'data' field instead of 'posts'
+      data: result.posts,
       pagination: {
         page,
         limit,
@@ -48,12 +44,13 @@ router.get('/home', async (c) => {
     return c.json({ 
       success: false, 
       error: 'Failed to get home feed',
-      data: []  // FIX: Include empty data array
+      data: []
     }, 500);
   }
 });
 
-// Get following feed (posts from users you follow)
+// Following feed stays the same - only posts from people you follow
+// This is like X's "Following" tab
 router.get('/following', async (c) => {
   try {
     const user = c.get('user');
@@ -61,7 +58,7 @@ router.get('/following', async (c) => {
       return c.json({ 
         success: false, 
         error: 'Authentication required',
-        data: []  // FIX: Include empty data array
+        data: []
       }, 401);
     }
     
@@ -73,7 +70,7 @@ router.get('/following', async (c) => {
     
     return c.json({
       success: true,
-      data: result.posts,  // FIX: Always use 'data' field
+      data: result.posts,
       pagination: {
         page,
         limit,
@@ -87,7 +84,7 @@ router.get('/following', async (c) => {
     return c.json({ 
       success: false, 
       error: 'Failed to get following feed',
-      data: []  // FIX: Include empty data array
+      data: []
     }, 500);
   }
 });

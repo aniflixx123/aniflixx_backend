@@ -148,6 +148,17 @@ CREATE TABLE IF NOT EXISTS post_comments (
   FOREIGN KEY (parent_id) REFERENCES post_comments(id) ON DELETE CASCADE
 );
 
+-- Post shares table
+CREATE TABLE IF NOT EXISTS post_shares (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  content TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE(post_id, user_id)
+);
 -- Post bookmarks table
 CREATE TABLE IF NOT EXISTS post_bookmarks (
   user_id TEXT NOT NULL,
@@ -294,6 +305,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_visibility ON posts(visibility, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_clan ON posts(clan_id, created_at DESC) WHERE clan_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_post_shares_post ON post_shares(post_id);
+CREATE INDEX IF NOT EXISTS idx_post_shares_user ON post_shares(user_id);
 
 -- Flick indexes
 CREATE INDEX IF NOT EXISTS idx_flicks_user_id ON flicks(user_id);
