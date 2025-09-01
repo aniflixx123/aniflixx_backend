@@ -1,4 +1,5 @@
-// workers/api-worker/src/routes/clans.ts
+// workers/api-worker/src/routes/clans.ts - WITH PROPER ROUTE ORDERING
+// CRITICAL: All static routes MUST be defined BEFORE dynamic routes with parameters
 
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -21,8 +22,17 @@ const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Apply auth middleware to all routes except public discovery
 router.use('/*', async (c, next) => {
   const path = c.req.path;
-  // Allow public access to discover and individual clan details
-  if (path.includes('/discover') || (path.match(/\/clans\/[^\/]+$/) && c.req.method === 'GET')) {
+  // Allow public access to discover, trending, search and individual clan details
+  // But NOT my-clans, which needs auth
+  const publicPaths = ['/discover', '/trending', '/search'];
+  const isPublicPath = publicPaths.some(p => path.includes(p));
+  
+  // Only allow public access to GET clan details, not my-clans
+  const isGetClanDetails = path.match(/\/clans\/[^\/]+$/) && 
+                           c.req.method === 'GET' && 
+                           !path.includes('my-clans');
+  
+  if (isPublicPath || isGetClanDetails) {
     return next();
   }
   return authMiddleware(c, next);
@@ -40,7 +50,12 @@ const createClanSchema = z.object({
   rules: z.array(z.object({
     title: z.string().max(100),
     description: z.string().max(500)
-  })).max(10).optional()
+  })).max(10).optional(),
+  theme: z.object({
+    primaryColor: z.string().optional(),
+    secondaryColor: z.string().optional(),
+    accentColor: z.string().optional()
+  }).optional()
 });
 
 const updateClanSchema = z.object({
@@ -53,12 +68,26 @@ const updateClanSchema = z.object({
   rules: z.array(z.object({
     title: z.string().max(100),
     description: z.string().max(500)
-  })).max(10).optional()
+  })).max(10).optional(),
+  theme: z.object({
+    primaryColor: z.string().optional(),
+    secondaryColor: z.string().optional(),
+    accentColor: z.string().optional()
+  }).optional(),
+  settings: z.any().optional()
 });
 
 const updateMemberRoleSchema = z.object({
   role: z.enum(['admin', 'moderator', 'member'])
 });
+
+const banUserSchema = z.object({
+  reason: z.string().max(500).optional()
+});
+
+// ============================================
+// STATIC ROUTES FIRST (no parameters)
+// ============================================
 
 // Get all clans (with pagination and filters)
 router.get('/', async (c) => {
@@ -67,7 +96,7 @@ router.get('/', async (c) => {
     const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
     const category = c.req.query('category');
     const search = c.req.query('search');
-    const sortBy = c.req.query('sortBy') || 'popular'; // popular, recent, active
+    const sortBy = c.req.query('sortBy') || 'popular';
     
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
     const result = await clanService.listClans({
@@ -82,6 +111,7 @@ router.get('/', async (c) => {
     return c.json({
       success: true,
       clans: result.clans,
+      data: result.clans, // Include both for compatibility
       pagination: {
         page,
         limit,
@@ -92,84 +122,6 @@ router.get('/', async (c) => {
   } catch (error) {
     console.error('List clans error:', error);
     return c.json({ success: false, error: 'Failed to fetch clans' }, 500);
-  }
-});
-
-// Discover clans (personalized recommendations)
-router.get('/discover', async (c) => {
-  try {
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-    
-    const clanService = new ClanService(c.env.DB, c.env.CACHE);
-    const result = await clanService.discoverClans({
-      page,
-      limit,
-      userId: c.get('user')?.id
-    });
-    
-    return c.json({
-      success: true,
-      clans: result.clans,
-      pagination: {
-        page,
-        limit,
-        total: result.total,
-        hasMore: result.hasMore
-      }
-    });
-  } catch (error) {
-    console.error('Discover clans error:', error);
-    return c.json({ success: false, error: 'Failed to discover clans' }, 500);
-  }
-});
-
-// Get user's clans
-router.get('/my-clans', async (c) => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      return c.json({ success: false, error: 'Unauthorized' }, 401);
-    }
-    
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-    
-    const clanService = new ClanService(c.env.DB, c.env.CACHE);
-    const result = await clanService.getUserClans(user.id, page, limit);
-    
-    return c.json({
-      success: true,
-      clans: result.clans,
-      pagination: {
-        page,
-        limit,
-        total: result.total,
-        hasMore: result.hasMore
-      }
-    });
-  } catch (error) {
-    console.error('Get user clans error:', error);
-    return c.json({ success: false, error: 'Failed to fetch user clans' }, 500);
-  }
-});
-
-// Get trending clans
-router.get('/trending', async (c) => {
-  try {
-    const timeframe = c.req.query('timeframe') || 'week'; // day, week, month
-    const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
-    
-    const clanService = new ClanService(c.env.DB, c.env.CACHE);
-    const result = await clanService.getTrendingClans(timeframe, limit);
-    
-    return c.json({
-      success: true,
-      clans: result.clans
-    });
-  } catch (error) {
-    console.error('Get trending clans error:', error);
-    return c.json({ success: false, error: 'Failed to fetch trending clans' }, 500);
   }
 });
 
@@ -202,7 +154,6 @@ router.post('/', async (c) => {
   } catch (error: any) {
     console.error('Create clan error:', error);
     
-    // Handle unique constraint violation
     if (error.message?.includes('UNIQUE constraint failed')) {
       return c.json({ 
         success: false, 
@@ -214,11 +165,138 @@ router.post('/', async (c) => {
   }
 });
 
-// Get clan details
+// Discover clans (personalized recommendations)
+router.get('/discover', async (c) => {
+  try {
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+    const category = c.req.query('category');
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    const result = await clanService.discoverClans({
+      page,
+      limit,
+      userId: c.get('user')?.id
+    });
+    
+    return c.json({
+      success: true,
+      clans: result.clans,
+      data: result.clans, // Include both for compatibility
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore
+      }
+    });
+  } catch (error) {
+    console.error('Discover clans error:', error);
+    return c.json({ success: false, error: 'Failed to discover clans' }, 500);
+  }
+});
+
+// Get user's clans - MUST BE BEFORE /:id
+router.get('/my-clans', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      console.log('No user found in context');
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    // Parse query parameters with defaults
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+    
+    console.log(`Fetching clans for user: ${user.id}, page: ${page}, limit: ${limit}`);
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    
+    // Pass all three required parameters
+    const result = await clanService.getUserClans(user.id, page, limit);
+    
+    console.log(`Found ${result.clans.length} clans for user ${user.id}`);
+    
+    return c.json({
+      success: true,
+      clans: result.clans,
+      data: result.clans, // Include both for compatibility
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore
+      }
+    });
+  } catch (error) {
+    console.error('Get user clans error:', error);
+    return c.json({ success: false, error: 'Failed to fetch user clans' }, 500);
+  }
+});
+
+// Get trending clans
+router.get('/trending', async (c) => {
+  try {
+    const timeframe = c.req.query('timeframe') || 'week';
+    const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    const result = await clanService.getTrendingClans(timeframe, limit);
+    
+    return c.json({
+      success: true,
+      clans: result.clans,
+      data: result.clans // Include both for compatibility
+    });
+  } catch (error) {
+    console.error('Get trending clans error:', error);
+    return c.json({ success: false, error: 'Failed to fetch trending clans' }, 500);
+  }
+});
+
+// Search clans
+router.get('/search/query', async (c) => {
+  try {
+    const query = c.req.query('q');
+    if (!query) {
+      return c.json({ success: false, error: 'Search query required' }, 400);
+    }
+    
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    const result = await clanService.searchClans(query, page, limit);
+    
+    return c.json({
+      success: true,
+      clans: result.clans,
+      data: result.clans, // Include both for compatibility
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore
+      }
+    });
+  } catch (error) {
+    console.error('Search clans error:', error);
+    return c.json({ success: false, error: 'Failed to search clans' }, 500);
+  }
+});
+
+// ============================================
+// DYNAMIC ROUTES WITH PARAMETERS (MUST BE LAST)
+// ============================================
+
+// Get clan details - THIS MUST BE AFTER ALL STATIC ROUTES
 router.get('/:id', async (c) => {
   try {
     const clanId = c.req.param('id');
     const userId = c.get('user')?.id;
+    
+    console.log(`Fetching clan details for ID: ${clanId}`);
     
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
     const clan = await clanService.getClanDetails(clanId, userId);
@@ -259,7 +337,6 @@ router.put('/:id', async (c) => {
     
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
     
-    // Check if user has permission to update clan
     const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'admin');
     if (!hasPermission) {
       return c.json({ success: false, error: 'Insufficient permissions' }, 403);
@@ -288,7 +365,6 @@ router.delete('/:id', async (c) => {
     const clanId = c.req.param('id');
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
     
-    // Only founder can delete clan
     const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'founder');
     if (!hasPermission) {
       return c.json({ success: false, error: 'Only the founder can delete the clan' }, 403);
@@ -328,6 +404,10 @@ router.post('/:id/join', async (c) => {
     
     if (error.message?.includes('already a member')) {
       return c.json({ success: false, error: error.message }, 409);
+    }
+    
+    if (error.message?.includes('banned')) {
+      return c.json({ success: false, error: error.message }, 403);
     }
     
     return c.json({ success: false, error: 'Failed to join clan' }, 500);
@@ -376,6 +456,7 @@ router.get('/:id/members', async (c) => {
     return c.json({
       success: true,
       members: result.members,
+      data: result.members, // Include both for compatibility
       pagination: {
         page,
         limit,
@@ -412,7 +493,6 @@ router.put('/:id/members/:userId', async (c) => {
     
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
     
-    // Check if user has permission to update roles
     const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'admin');
     if (!hasPermission) {
       return c.json({ success: false, error: 'Insufficient permissions' }, 403);
@@ -443,7 +523,6 @@ router.delete('/:id/members/:userId', async (c) => {
     
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
     
-    // Check if user has permission to remove members
     const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'moderator');
     if (!hasPermission) {
       return c.json({ success: false, error: 'Insufficient permissions' }, 403);
@@ -458,6 +537,134 @@ router.delete('/:id/members/:userId', async (c) => {
   } catch (error) {
     console.error('Remove member error:', error);
     return c.json({ success: false, error: 'Failed to remove member' }, 500);
+  }
+});
+
+// Ban user from clan
+router.post('/:id/ban', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    const clanId = c.req.param('id');
+    const body = await c.req.json();
+    
+    if (!body.userId) {
+      return c.json({ success: false, error: 'User ID required' }, 400);
+    }
+    
+    const validated = validateRequest(banUserSchema, { reason: body.reason });
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    
+    const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'moderator');
+    if (!hasPermission) {
+      return c.json({ success: false, error: 'Insufficient permissions' }, 403);
+    }
+    
+    const reason = validated.success ? validated.data.reason : undefined;
+    await clanService.banUser(clanId, body.userId, user.id, reason);
+    
+    return c.json({
+      success: true,
+      message: 'User banned successfully'
+    });
+  } catch (error: any) {
+    console.error('Ban user error:', error);
+    
+    if (error.message?.includes('Cannot ban')) {
+      return c.json({ success: false, error: error.message }, 403);
+    }
+    
+    return c.json({ success: false, error: 'Failed to ban user' }, 500);
+  }
+});
+
+// Unban user from clan
+router.post('/:id/unban', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    const clanId = c.req.param('id');
+    const body = await c.req.json();
+    
+    if (!body.userId) {
+      return c.json({ success: false, error: 'User ID required' }, 400);
+    }
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    
+    const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'moderator');
+    if (!hasPermission) {
+      return c.json({ success: false, error: 'Insufficient permissions' }, 403);
+    }
+    
+    await clanService.unbanUser(clanId, body.userId, user.id);
+    
+    return c.json({
+      success: true,
+      message: 'User unbanned successfully'
+    });
+  } catch (error) {
+    console.error('Unban user error:', error);
+    return c.json({ success: false, error: 'Failed to unban user' }, 500);
+  }
+});
+
+// Get banned users
+router.get('/:id/banned', async (c) => {
+  try {
+    const clanId = c.req.param('id');
+    const user = c.get('user');
+    
+    const clanService = new ClanService(c.env.DB, c.env.CACHE);
+    
+    // Check if user has permission to view banned list
+    if (user) {
+      const hasPermission = await clanService.checkUserPermission(clanId, user.id, 'moderator');
+      if (!hasPermission) {
+        return c.json({ success: false, error: 'Insufficient permissions' }, 403);
+      }
+    }
+    
+    // Get banned users from database
+    const db = c.env.DB;
+    const bannedUsers = await db.prepare(`
+      SELECT 
+        bu.user_id,
+        bu.reason,
+        bu.banned_at,
+        bu.banned_by,
+        u.username,
+        u.profile_image,
+        banner.username as banned_by_username
+      FROM clan_banned_users bu
+      JOIN users u ON bu.user_id = u.id
+      JOIN users banner ON bu.banned_by = banner.id
+      WHERE bu.clan_id = ?
+      ORDER BY bu.banned_at DESC
+    `).bind(clanId).all();
+    
+    return c.json({
+      success: true,
+      data: bannedUsers.results.map(user => ({
+        uid: user.user_id,
+        username: user.username,
+        profileImage: user.profile_image,
+        reason: user.reason,
+        bannedAt: user.banned_at,
+        bannedBy: user.banned_by,
+        bannedByUsername: user.banned_by_username
+      }))
+    });
+  } catch (error) {
+    console.error('Get banned users error:', error);
+    return c.json({ success: false, error: 'Failed to fetch banned users' }, 500);
   }
 });
 
@@ -480,33 +687,22 @@ router.get('/:id/stats', async (c) => {
   }
 });
 
-// Search clans
-router.get('/search', async (c) => {
+// Get clan activity feed
+router.get('/:id/activity', async (c) => {
   try {
-    const query = c.req.query('q');
-    if (!query) {
-      return c.json({ success: false, error: 'Search query required' }, 400);
-    }
-    
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+    const clanId = c.req.param('id');
+    const timeframe = c.req.query('timeframe') || 'week';
     
     const clanService = new ClanService(c.env.DB, c.env.CACHE);
-    const result = await clanService.searchClans(query, page, limit);
+    const activities = await clanService.getClanActivity(clanId, timeframe);
     
     return c.json({
       success: true,
-      clans: result.clans,
-      pagination: {
-        page,
-        limit,
-        total: result.total,
-        hasMore: result.hasMore
-      }
+      data: activities
     });
   } catch (error) {
-    console.error('Search clans error:', error);
-    return c.json({ success: false, error: 'Failed to search clans' }, 500);
+    console.error('Get clan activity error:', error);
+    return c.json({ success: false, error: 'Failed to fetch clan activity' }, 500);
   }
 });
 

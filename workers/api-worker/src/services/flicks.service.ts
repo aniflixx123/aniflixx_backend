@@ -163,49 +163,7 @@ export class FlicksService {
     };
   }
 
-  async getFeed(userId: string, page: number = 1, limit: number = 20) {
-    const offset = (page - 1) * limit;
-
-    // Try cache first
-    const cacheKey = `feed:${userId}:${page}:${limit}`;
-    const cached = await this.cache.get(cacheKey, 'json');
-    if (cached) {
-      return cached as any;
-    }
-
-    // Get flicks with user info and analytics
-    const flicksData = await this.db.prepare(`
-      SELECT 
-        f.*,
-        fa.views, fa.likes as likesCount, fa.comments as commentsCount,
-        fa.shares, fa.saves as savesCount,
-        CASE WHEN l.user_id IS NOT NULL THEN 1 ELSE 0 END as isLiked,
-        CASE WHEN s.user_id IS NOT NULL THEN 1 ELSE 0 END as isSaved,
-        u.is_verified
-      FROM flicks f
-      LEFT JOIN flick_analytics fa ON f.id = fa.flick_id
-      LEFT JOIN flick_likes l ON f.id = l.flick_id AND l.user_id = ?
-      LEFT JOIN flick_saves s ON f.id = s.flick_id AND s.user_id = ?
-      LEFT JOIN users u ON f.user_id = u.id
-      WHERE f.status = 'active'
-      ORDER BY f.created_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(userId, userId, limit + 1, offset).all();
-
-    const hasMore = flicksData.results.length > limit;
-    const flicks = flicksData.results.slice(0, limit).map(this.formatFlick);
-
-    const result = {
-      flicks,
-      total: flicks.length,
-      hasMore,
-    };
-
-    // Cache for 1 minute
-    await this.cache.put(cacheKey, JSON.stringify(result), { expirationTtl: 60 });
-
-    return result;
-  }
+  
 
   async getFlickById(flickId: string, userId?: string) {
     const flick = await this.db.prepare(`
@@ -231,39 +189,13 @@ export class FlicksService {
     return this.formatFlick(flick);
   }
 
-  async getUserFlicks(targetUserId: string, currentUserId: string, page: number = 1, limit: number = 20) {
-    const offset = (page - 1) * limit;
+  // Update your getSavedFlicks method in FlicksService:
 
-    const flicksData = await this.db.prepare(`
-      SELECT 
-        f.*,
-        fa.views, fa.likes as likesCount, fa.comments as commentsCount,
-        CASE WHEN l.user_id IS NOT NULL THEN 1 ELSE 0 END as isLiked,
-        CASE WHEN s.user_id IS NOT NULL THEN 1 ELSE 0 END as isSaved,
-        u.is_verified
-      FROM flicks f
-      LEFT JOIN flick_analytics fa ON f.id = fa.flick_id
-      LEFT JOIN flick_likes l ON f.id = l.flick_id AND l.user_id = ?
-      LEFT JOIN flick_saves s ON f.id = s.flick_id AND s.user_id = ?
-      LEFT JOIN users u ON f.user_id = u.id
-      WHERE f.user_id = ? AND f.status = 'active'
-      ORDER BY f.created_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(currentUserId, currentUserId, targetUserId, limit + 1, offset).all();
+async getSavedFlicks(userId: string, page: number = 1, limit: number = 20) {
+  console.log('🔖 getSavedFlicks called for user:', userId);
+  const offset = (page - 1) * limit;
 
-    const hasMore = flicksData.results.length > limit;
-    const flicks = flicksData.results.slice(0, limit).map(this.formatFlick);
-
-    return {
-      flicks,
-      total: flicks.length,
-      hasMore,
-    };
-  }
-
-  async getSavedFlicks(userId: string, page: number = 1, limit: number = 20) {
-    const offset = (page - 1) * limit;
-
+  try {
     const savedFlicks = await this.db.prepare(`
       SELECT 
         f.*,
@@ -282,18 +214,123 @@ export class FlicksService {
       LIMIT ? OFFSET ?
     `).bind(userId, userId, limit + 1, offset).all();
 
+    console.log('📦 Saved flicks query result:', {
+      success: savedFlicks.success,
+      count: savedFlicks.results?.length || 0
+    });
+
+    if (!savedFlicks.results || savedFlicks.results.length === 0) {
+      console.log('⚠️ No saved flicks found');
+      return {
+        flicks: [],
+        total: 0,
+        hasMore: false,
+      };
+    }
+
     const hasMore = savedFlicks.results.length > limit;
-    const flicks = savedFlicks.results.slice(0, limit).map((flick: any) => ({
-      ...this.formatFlick(flick),
-      savedAt: flick.savedAt,
-    }));
+    
+    // Fix: Use arrow function to preserve 'this' context
+    const flicks = savedFlicks.results.slice(0, limit).map((flick: any) => {
+      console.log('🎬 Processing saved flick:', {
+        id: flick.id,
+        title: flick.title,
+        thumbnail: flick.thumbnail_url?.substring(0, 50)
+      });
+      
+      const formatted = this.formatFlick(flick);
+      
+      console.log('✅ Formatted saved flick:', {
+        _id: formatted._id,
+        thumbnailUrl: formatted.thumbnailUrl?.substring(0, 50)
+      });
+      
+      return {
+        ...formatted,
+        savedAt: flick.savedAt,
+      };
+    });
+
+    console.log('✅ Returning saved flicks:', {
+      count: flicks.length,
+      hasMore
+    });
 
     return {
       flicks,
       total: flicks.length,
       hasMore,
     };
+  } catch (error) {
+    console.error('❌ Error in getSavedFlicks:', error);
+    throw error;
   }
+}
+
+// Also fix the same issue in other methods - getUserFlicks:
+async getUserFlicks(targetUserId: string, currentUserId: string, page: number = 1, limit: number = 20) {
+  const offset = (page - 1) * limit;
+
+  const flicksData = await this.db.prepare(`
+    SELECT 
+      f.*,
+      fa.views, fa.likes as likesCount, fa.comments as commentsCount,
+      CASE WHEN l.user_id IS NOT NULL THEN 1 ELSE 0 END as isLiked,
+      CASE WHEN s.user_id IS NOT NULL THEN 1 ELSE 0 END as isSaved,
+      u.is_verified
+    FROM flicks f
+    LEFT JOIN flick_analytics fa ON f.id = fa.flick_id
+    LEFT JOIN flick_likes l ON f.id = l.flick_id AND l.user_id = ?
+    LEFT JOIN flick_saves s ON f.id = s.flick_id AND s.user_id = ?
+    LEFT JOIN users u ON f.user_id = u.id
+    WHERE f.user_id = ? AND f.status = 'active'
+    ORDER BY f.created_at DESC
+    LIMIT ? OFFSET ?
+  `).bind(currentUserId, currentUserId, targetUserId, limit + 1, offset).all();
+
+  const hasMore = flicksData.results.length > limit;
+  
+  // Fix: Use arrow function to preserve 'this' context
+  const flicks = flicksData.results.slice(0, limit).map((flick: any) => this.formatFlick(flick));
+
+  return {
+    flicks,
+    total: flicks.length,
+    hasMore,
+  };
+}
+
+async getFeed(userId: string, page: number = 1, limit: number = 20) {
+  const offset = (page - 1) * limit;
+
+  // Get flicks with follow status
+  const flicksData = await this.db.prepare(`
+    SELECT 
+      f.*,
+      fa.views, fa.likes as likesCount, fa.comments as commentsCount,
+      fa.shares, fa.saves as savesCount,
+      CASE WHEN l.user_id IS NOT NULL THEN 1 ELSE 0 END as isLiked,
+      CASE WHEN s.user_id IS NOT NULL THEN 1 ELSE 0 END as isSaved,
+      u.is_verified,
+      -- ADD THIS: Check if current user follows the flick creator
+      CASE WHEN fw.follower_id IS NOT NULL THEN 1 ELSE 0 END as isFollowing
+    FROM flicks f
+    LEFT JOIN flick_analytics fa ON f.id = fa.flick_id
+    LEFT JOIN flick_likes l ON f.id = l.flick_id AND l.user_id = ?
+    LEFT JOIN flick_saves s ON f.id = s.flick_id AND s.user_id = ?
+    LEFT JOIN users u ON f.user_id = u.id
+    -- ADD THIS: Join with follows table
+    LEFT JOIN follows fw ON f.user_id = fw.following_id AND fw.follower_id = ?
+    WHERE f.status = 'active'
+    ORDER BY f.created_at DESC
+    LIMIT ? OFFSET ?
+  `).bind(userId, userId, userId, limit + 1, offset).all(); // Note: added extra userId binding
+
+  const hasMore = flicksData.results.length > limit;
+  const flicks = flicksData.results.slice(0, limit).map((flick: any) => this.formatFlick(flick));
+
+  return { flicks, total: flicks.length, hasMore };
+}
 
   async toggleLike(flickId: string, userId: string) {
     // Check if already liked
@@ -486,32 +523,33 @@ export class FlicksService {
   }
 
   private formatFlick(flick: any) {
-    return {
-      _id: flick.id,
-      videoUrl: flick.playback_url,
-      title: flick.title || '',
-      description: flick.description || '',
-      hashtags: JSON.parse(flick.hashtags || '[]'),
-      likesCount: flick.likesCount || 0,
-      isLiked: !!flick.isLiked,
-      isSaved: !!flick.isSaved,
-      commentsCount: flick.commentsCount || 0,
-      views: flick.views || 0,
-      duration: flick.duration || 0,
-      streamVideoId: flick.stream_video_id,
-      thumbnailUrl: flick.thumbnail_url,
-      animatedThumbnailUrl: flick.animated_thumbnail_url,
-      createdAt: flick.created_at,
-      user: {
-        uid: flick.user_id,
-        username: flick.username || 'anonymous',
-        profileImage: flick.profile_image || '',
-        isVerified: !!flick.is_verified,
-        followersCount: flick.followers_count || 0,
-        bio: flick.bio || '',
-      },
-    };
-  }
+  return {
+    _id: flick.id,
+    videoUrl: flick.playback_url,
+    title: flick.title || '',
+    description: flick.description || '',
+    hashtags: JSON.parse(flick.hashtags || '[]'),
+    likesCount: flick.likesCount || 0,
+    isLiked: !!flick.isLiked,
+    isSaved: !!flick.isSaved,
+    isFollowing: !!flick.isFollowing,  // ADD THIS
+    commentsCount: flick.commentsCount || 0,
+    views: flick.views || 0,
+    duration: flick.duration || 0,
+    streamVideoId: flick.stream_video_id,
+    thumbnailUrl: flick.thumbnail_url,
+    animatedThumbnailUrl: flick.animated_thumbnail_url,
+    createdAt: flick.created_at,
+    user: {
+      uid: flick.user_id,
+      username: flick.username || 'anonymous',
+      profileImage: flick.profile_image || '',
+      isVerified: !!flick.is_verified,
+      followersCount: flick.followers_count || 0,
+      bio: flick.bio || '',
+    },
+  };
+}
 
   private async createNotification(
     recipientId: string,
@@ -538,18 +576,33 @@ export class FlicksService {
       new Date().toISOString()
     ).run();
   }
-   async getTrendingFlicks(page: number = 1, limit: number = 20) {
-    const offset = (page - 1) * limit;
+  // Update this method in your FlicksService class:
 
-    // Try cache first
-    const cacheKey = `trending:flicks:${page}:${limit}`;
-    const cached = await this.cache.get(cacheKey, 'json');
-    if (cached) {
-      return cached as any;
+async getTrendingFlicks(page: number = 1, limit: number = 20) {
+  console.log('🔥 getTrendingFlicks called with:', { page, limit });
+  const offset = (page - 1) * limit;
+
+  // Try cache first
+  const cacheKey = `trending:flicks:${page}:${limit}`;
+  console.log('📦 Checking cache with key:', cacheKey);
+  
+  const cached = await this.cache.get(cacheKey, 'json');
+  if (cached) {
+    console.log('✅ Cache hit! Returning cached data');
+    // Check if cached data is valid
+    const cachedData = cached as any;
+    if (cachedData && cachedData.flicks && cachedData.flicks.length > 0) {
+      return cachedData;
     }
+    console.log('⚠️ Cache had empty data, fetching fresh...');
+    // Delete invalid cache
+    await this.cache.delete(cacheKey);
+  }
+  console.log('❌ Cache miss, fetching from database');
 
-    // Get trending flicks from last 7 days with engagement score
-    const trendingData = await this.db.prepare(`
+  try {
+    // First try to get trending flicks from last 7 days
+    let query = `
       SELECT 
         f.*,
         fa.views, fa.likes as likesCount, fa.comments as commentsCount,
@@ -569,12 +622,64 @@ export class FlicksService {
       LEFT JOIN users u ON f.user_id = u.id
       WHERE f.status = 'active' 
         AND f.created_at >= datetime('now', '-7 days')
-      ORDER BY trendingScore DESC
+      ORDER BY trendingScore DESC, f.created_at DESC
       LIMIT ? OFFSET ?
-    `).bind(limit + 1, offset).all();
+    `;
+    
+    console.log('🔍 Executing trending query (last 7 days)...');
+    let trendingData = await this.db.prepare(query).bind(limit + 1, offset).all();
+    
+    console.log('📊 Recent flicks found:', trendingData.results?.length || 0);
+    
+    // If no recent flicks, get ALL active flicks sorted by engagement
+    if (!trendingData.results || trendingData.results.length === 0) {
+      console.log('⚠️ No recent flicks found, fetching all active flicks...');
+      
+      query = `
+        SELECT 
+          f.*,
+          fa.views, fa.likes as likesCount, fa.comments as commentsCount,
+          fa.shares, fa.saves as savesCount,
+          u.is_verified,
+          (
+            fa.views * 0.1 + 
+            fa.likes * 1 + 
+            fa.comments * 2 + 
+            fa.shares * 3 + 
+            fa.saves * 2
+          ) as trendingScore
+        FROM flicks f
+        LEFT JOIN flick_analytics fa ON f.id = fa.flick_id
+        LEFT JOIN users u ON f.user_id = u.id
+        WHERE f.status = 'active'
+        ORDER BY trendingScore DESC, fa.views DESC, f.created_at DESC
+        LIMIT ? OFFSET ?
+      `;
+      
+      trendingData = await this.db.prepare(query).bind(limit + 1, offset).all();
+      console.log('📊 All active flicks found:', trendingData.results?.length || 0);
+    }
+
+    if (!trendingData.results) {
+      console.error('⚠️ No results array in database response');
+      return {
+        flicks: [],
+        total: 0,
+        hasMore: false,
+      };
+    }
 
     const hasMore = trendingData.results.length > limit;
-    const flicks = trendingData.results.slice(0, limit).map(this.formatFlick);
+    const flicks = trendingData.results.slice(0, limit).map((flick: any) => {
+      console.log('🎬 Processing flick:', {
+        id: flick.id,
+        title: flick.title,
+        views: flick.views,
+        likes: flick.likesCount,
+        hasThumb: !!flick.thumbnail_url
+      });
+      return this.formatFlick(flick);
+    });
 
     const result = {
       flicks,
@@ -582,9 +687,28 @@ export class FlicksService {
       hasMore,
     };
 
-    // Cache for 5 minutes
-    await this.cache.put(cacheKey, JSON.stringify(result), { expirationTtl: 300 });
+    // Only cache if we have data
+    if (flicks.length > 0) {
+      console.log('💾 Caching result for 5 minutes');
+      await this.cache.put(cacheKey, JSON.stringify(result), { expirationTtl: 300 });
+    }
+
+    console.log('✅ Returning trending flicks:', {
+      count: flicks.length,
+      hasMore
+    });
 
     return result;
+  } catch (error) {
+    console.error('❌ Database error in getTrendingFlicks:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    
+    // Return empty result instead of throwing
+    return {
+      flicks: [],
+      total: 0,
+      hasMore: false,
+    };
   }
+}
 }

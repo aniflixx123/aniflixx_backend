@@ -15,40 +15,54 @@ export interface Clan {
     secondaryColor: string;
     accentColor: string;
   };
-  founder_id: string;
-  founder?: {
+  founder: string; // Changed from founder_id to match frontend
+  founder_details?: { // Optional founder details
     id: string;
     username: string;
-    profile_image?: string;
+    profileImage?: string;
   };
-  member_count: number;
-  is_active: boolean;
-  is_private?: boolean;
-  categories?: string[];
+  admins?: string[];
+  moderators?: string[];
+  memberCount: number; // Changed from member_count
+  settings?: any;
   rules?: Array<{ title: string; description: string }>;
-  created_at: string;
-  updated_at: string;
+  categories?: string[];
+  tags?: string[];
+  stats?: ClanStats;
+  bannedUsers?: string[];
+  status: 'active' | 'suspended' | 'deleted';
+  verificationStatus?: 'unverified' | 'verified' | 'official';
+  isPrivate?: boolean;
+  createdAt: string; // Changed from created_at
+  updatedAt: string; // Changed from updated_at
   
   // Computed fields
   isMember?: boolean;
   userRole?: string;
-  stats?: ClanStats;
 }
 
 export interface ClanMember {
-  user_id: string;
+  uid: string; // Changed from user_id to match frontend
   username?: string;
-  profile_image?: string;
+  profileImage?: string; // Changed from profile_image
+  joinedAt: string; // Changed from joined_at
   role: 'founder' | 'admin' | 'moderator' | 'member';
-  joined_at: string;
+  reputation?: number;
+  contributions?: number;
 }
 
 export interface ClanStats {
   totalPosts: number;
-  postsToday: number;
-  activeMembers: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number;
+  monthlyActiveUsers: number;
   growthRate: number;
   engagementRate: number;
+  postsToday: number;
+  activeUsers: number;
+  activeMembers: number;
+  recentPosts: number;
+  recentMembers: number;
 }
 
 interface ListClansOptions {
@@ -72,48 +86,42 @@ export class ClanService {
     // Start transaction
     const statements = [];
     
-    // Insert clan
+    // Insert clan with all new fields
     statements.push(
       this.db.prepare(`
         INSERT INTO clans (
-          id, name, description, avatar_url, founder_id,
-          member_count, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          id, name, display_name, description, avatar_url, banner_url,
+          theme, founder_id, member_count, is_active, is_private,
+          verification_status, categories, rules, settings,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `).bind(
         clanId,
         data.name.toLowerCase(),
+        data.displayName || data.name,
         data.description,
         data.avatar || null,
-        founderId
+        data.banner || null,
+        JSON.stringify(data.theme || null),
+        founderId,
+        data.isPrivate || false,
+        'unverified',
+        JSON.stringify(data.categories || []),
+        JSON.stringify(data.rules || []),
+        JSON.stringify(data.settings || {})
       )
     );
     
     // Add founder as first member
     statements.push(
       this.db.prepare(`
-        INSERT INTO clan_members (clan_id, user_id, role, joined_at)
-        VALUES (?, ?, 'founder', CURRENT_TIMESTAMP)
+        INSERT INTO clan_members (clan_id, user_id, role, reputation, contributions, joined_at)
+        VALUES (?, ?, 'founder', 0, 0, CURRENT_TIMESTAMP)
       `).bind(clanId, founderId)
     );
     
     // Execute transaction
     await this.db.batch(statements);
-    
-    // Store additional metadata in KV if needed
-    if (data.displayName || data.banner || data.categories || data.rules) {
-      await this.cache.put(
-        `clan:meta:${clanId}`,
-        JSON.stringify({
-          displayName: data.displayName || data.name,
-          banner: data.banner,
-          isPrivate: data.isPrivate || false,
-          categories: data.categories || [],
-          rules: data.rules || [],
-          theme: data.theme
-        }),
-        { expirationTtl: 86400 } // 24 hours
-      );
-    }
     
     // Clear relevant caches
     await this.invalidateClanCaches(founderId);
@@ -129,7 +137,7 @@ export class ClanService {
       return JSON.parse(cached);
     }
     
-    // Get clan from database
+    // Get clan from database with all new fields
     const clan = await this.db.prepare(`
       SELECT 
         c.*,
@@ -143,10 +151,6 @@ export class ClanService {
     if (!clan) {
       return null;
     }
-    
-    // Get metadata from KV
-    const metadataStr = await this.cache.get(`clan:meta:${clanId}`);
-    const metadata = metadataStr ? JSON.parse(metadataStr) : {};
     
     // Check if user is member
     let isMember = false;
@@ -164,33 +168,66 @@ export class ClanService {
       }
     }
     
+    // Get admins and moderators
+    const roleMembers = await this.db.prepare(`
+      SELECT user_id, role FROM clan_members 
+      WHERE clan_id = ? AND role IN ('admin', 'moderator')
+    `).bind(clanId).all();
+    
+    const admins = roleMembers.results
+      .filter(m => m.role === 'admin')
+      .map(m => m.user_id as string);
+    
+    const moderators = roleMembers.results
+      .filter(m => m.role === 'moderator')
+      .map(m => m.user_id as string);
+    
+    // Get banned users
+    const bannedResult = await this.db.prepare(`
+      SELECT user_id FROM clan_banned_users WHERE clan_id = ?
+    `).bind(clanId).all();
+    
+    const bannedUsers = bannedResult.results.map(b => b.user_id as string);
+    
     // Get stats
     const stats = await this.getClanStats(clanId, 'day');
+    
+    // Parse JSON fields
+    const theme = clan.theme ? JSON.parse(clan.theme as string) : undefined;
+    const categories = clan.categories ? JSON.parse(clan.categories as string) : [];
+    const rules = clan.rules ? JSON.parse(clan.rules as string) : [];
+    const settings = clan.settings ? JSON.parse(clan.settings as string) : undefined;
     
     const clanData: Clan = {
       id: clan.id as string,
       name: clan.name as string,
-      displayName: metadata.displayName || clan.name as string,
+      displayName: clan.display_name as string || clan.name as string,
       description: clan.description as string,
       avatar: clan.avatar_url as string || undefined,
-      banner: metadata.banner,
-      theme: metadata.theme,
-      founder_id: clan.founder_id as string,
-      founder: {
+      banner: clan.banner_url as string || undefined,
+      theme,
+      founder: clan.founder_id as string, // Return as 'founder' not 'founder_id'
+      founder_details: {
         id: clan.founder_id as string,
         username: clan.founder_username as string,
-        profile_image: clan.founder_profile_image as string || undefined
+        profileImage: clan.founder_profile_image as string || undefined
       },
-      member_count: clan.member_count as number,
-      is_active: clan.is_active as boolean,
-      is_private: metadata.isPrivate || false,
-      categories: metadata.categories || [],
-      rules: metadata.rules || [],
-      created_at: clan.created_at as string,
-      updated_at: clan.updated_at as string,
+      admins,
+      moderators,
+      memberCount: clan.member_count as number,
+      settings,
+      rules,
+      categories,
+      tags: [], // Add if you have tags
+      stats,
+      bannedUsers,
+      status: clan.is_active ? 'active' : 'suspended',
+      verificationStatus: clan.verification_status as 'unverified' | 'verified' | 'official',
+      isPrivate: clan.is_private as boolean,
+      createdAt: clan.created_at as string,
+      updatedAt: clan.updated_at as string,
       isMember,
-      userRole: userRole || undefined,
-      stats
+      userRole: userRole || undefined
     };
     
     // Cache the result
@@ -202,9 +239,14 @@ export class ClanService {
   }
 
   async updateClan(clanId: string, data: any): Promise<Clan> {
-    // Update database fields
+    // Build update query
     const updates = [];
     const params = [];
+    
+    if (data.displayName !== undefined) {
+      updates.push('display_name = ?');
+      params.push(data.displayName);
+    }
     
     if (data.description !== undefined) {
       updates.push('description = ?');
@@ -214,6 +256,36 @@ export class ClanService {
     if (data.avatar !== undefined) {
       updates.push('avatar_url = ?');
       params.push(data.avatar);
+    }
+    
+    if (data.banner !== undefined) {
+      updates.push('banner_url = ?');
+      params.push(data.banner);
+    }
+    
+    if (data.theme !== undefined) {
+      updates.push('theme = ?');
+      params.push(JSON.stringify(data.theme));
+    }
+    
+    if (data.isPrivate !== undefined) {
+      updates.push('is_private = ?');
+      params.push(data.isPrivate);
+    }
+    
+    if (data.categories !== undefined) {
+      updates.push('categories = ?');
+      params.push(JSON.stringify(data.categories));
+    }
+    
+    if (data.rules !== undefined) {
+      updates.push('rules = ?');
+      params.push(JSON.stringify(data.rules));
+    }
+    
+    if (data.settings !== undefined) {
+      updates.push('settings = ?');
+      params.push(JSON.stringify(data.settings));
     }
     
     if (updates.length > 0) {
@@ -226,26 +298,6 @@ export class ClanService {
         WHERE id = ?
       `).bind(...params).run();
     }
-    
-    // Update metadata in KV
-    const metadataStr = await this.cache.get(`clan:meta:${clanId}`);
-    const metadata = metadataStr ? JSON.parse(metadataStr) : {};
-    
-    const updatedMetadata = {
-      ...metadata,
-      ...(data.displayName !== undefined && { displayName: data.displayName }),
-      ...(data.banner !== undefined && { banner: data.banner }),
-      ...(data.isPrivate !== undefined && { isPrivate: data.isPrivate }),
-      ...(data.categories !== undefined && { categories: data.categories }),
-      ...(data.rules !== undefined && { rules: data.rules }),
-      ...(data.theme !== undefined && { theme: data.theme })
-    };
-    
-    await this.cache.put(
-      `clan:meta:${clanId}`,
-      JSON.stringify(updatedMetadata),
-      { expirationTtl: 86400 }
-    );
     
     // Clear cache
     await this.clearClanCache(clanId);
@@ -263,7 +315,6 @@ export class ClanService {
     
     // Clear all related caches
     await this.clearClanCache(clanId);
-    await this.cache.delete(`clan:meta:${clanId}`);
   }
 
   async joinClan(clanId: string, userId: string): Promise<void> {
@@ -277,11 +328,21 @@ export class ClanService {
       throw new Error('User is already a member of this clan');
     }
     
+    // Check if user is banned
+    const banned = await this.db.prepare(`
+      SELECT 1 FROM clan_banned_users 
+      WHERE clan_id = ? AND user_id = ?
+    `).bind(clanId, userId).first();
+    
+    if (banned) {
+      throw new Error('You are banned from this clan');
+    }
+    
     // Add member and update count in transaction
     const statements = [
       this.db.prepare(`
-        INSERT INTO clan_members (clan_id, user_id, role, joined_at)
-        VALUES (?, ?, 'member', CURRENT_TIMESTAMP)
+        INSERT INTO clan_members (clan_id, user_id, role, reputation, contributions, joined_at)
+        VALUES (?, ?, 'member', 0, 0, CURRENT_TIMESTAMP)
       `).bind(clanId, userId),
       
       this.db.prepare(`
@@ -292,6 +353,9 @@ export class ClanService {
     ];
     
     await this.db.batch(statements);
+    
+    // Log activity
+    await this.logActivity(clanId, userId, 'join', null);
     
     // Clear caches
     await this.clearClanCache(clanId);
@@ -328,6 +392,9 @@ export class ClanService {
     ];
     
     await this.db.batch(statements);
+    
+    // Log activity
+    await this.logActivity(clanId, userId, 'leave', null);
     
     // Clear caches
     await this.clearClanCache(clanId);
@@ -366,6 +433,8 @@ export class ClanService {
         cm.user_id,
         cm.role,
         cm.joined_at,
+        cm.reputation,
+        cm.contributions,
         u.username,
         u.profile_image
       FROM clan_members cm
@@ -382,14 +451,18 @@ export class ClanService {
       LIMIT ? OFFSET ?
     `).bind(...params).all();
     
+    const formattedMembers: ClanMember[] = members.results.map(m => ({
+      uid: m.user_id as string, // Changed to uid
+      username: m.username as string,
+      profileImage: m.profile_image as string || undefined, // Changed to profileImage
+      joinedAt: m.joined_at as string, // Changed to joinedAt
+      role: m.role as 'founder' | 'admin' | 'moderator' | 'member',
+      reputation: m.reputation as number,
+      contributions: m.contributions as number
+    }));
+    
     return {
-      members: members.results.map(m => ({
-        user_id: m.user_id as string,
-        username: m.username as string,
-        profile_image: m.profile_image as string || undefined,
-        role: m.role as 'founder' | 'admin' | 'moderator' | 'member',
-        joined_at: m.joined_at as string
-      })),
+      members: formattedMembers,
       total,
       hasMore: offset + options.limit < total
     };
@@ -397,16 +470,16 @@ export class ClanService {
 
   async updateMemberRole(clanId: string, userId: string, newRole: string): Promise<void> {
     // Can't change founder role
-    const currentRole = await this.db.prepare(`
+    const currentMembership = await this.db.prepare(`
       SELECT role FROM clan_members 
       WHERE clan_id = ? AND user_id = ?
     `).bind(clanId, userId).first();
     
-    if (!currentRole) {
+    if (!currentMembership) {
       throw new Error('User is not a member of this clan');
     }
     
-    if (currentRole.role === 'founder') {
+    if (currentMembership.role === 'founder') {
       throw new Error('Cannot change founder role');
     }
     
@@ -416,7 +489,9 @@ export class ClanService {
       WHERE clan_id = ? AND user_id = ?
     `).bind(newRole, clanId, userId).run();
     
-    // Clear cache
+    // Log activity
+    await this.logActivity(clanId, userId, 'role_change', null, { newRole });
+    
     await this.clearClanCache(clanId);
   }
 
@@ -432,10 +507,9 @@ export class ClanService {
     }
     
     if (membership.role === 'founder') {
-      throw new Error('Cannot remove founder from clan');
+      throw new Error('Cannot remove the founder');
     }
     
-    // Remove member and update count
     const statements = [
       this.db.prepare(`
         DELETE FROM clan_members 
@@ -444,16 +518,152 @@ export class ClanService {
       
       this.db.prepare(`
         UPDATE clans 
-        SET member_count = member_count - 1, updated_at = CURRENT_TIMESTAMP
+        SET member_count = member_count - 1
         WHERE id = ?
       `).bind(clanId)
     ];
     
     await this.db.batch(statements);
     
-    // Clear caches
     await this.clearClanCache(clanId);
     await this.invalidateClanCaches(userId);
+  }
+
+  async banUser(clanId: string, userId: string, bannedBy: string, reason?: string): Promise<void> {
+    // First remove them if they're a member
+    const membership = await this.db.prepare(`
+      SELECT role FROM clan_members 
+      WHERE clan_id = ? AND user_id = ?
+    `).bind(clanId, userId).first();
+    
+    if (membership) {
+      if (membership.role === 'founder') {
+        throw new Error('Cannot ban the founder');
+      }
+      
+      // Remove from members
+      await this.removeMember(clanId, userId);
+    }
+    
+    // Add to banned list
+    const banId = nanoid();
+    await this.db.prepare(`
+      INSERT INTO clan_banned_users (id, clan_id, user_id, banned_by, reason, banned_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(banId, clanId, userId, bannedBy, reason || null).run();
+    
+    // Log activity
+    await this.logActivity(clanId, bannedBy, 'ban', userId, { reason });
+    
+    await this.clearClanCache(clanId);
+  }
+
+  async unbanUser(clanId: string, userId: string, unbannedBy: string): Promise<void> {
+    await this.db.prepare(`
+      DELETE FROM clan_banned_users 
+      WHERE clan_id = ? AND user_id = ?
+    `).bind(clanId, userId).run();
+    
+    // Log activity
+    await this.logActivity(clanId, unbannedBy, 'unban', userId);
+    
+    await this.clearClanCache(clanId);
+  }
+
+  async getClanStats(clanId: string, timeframe: string): Promise<ClanStats> {
+    // Get today's stats from clan_stats table
+    const today = new Date().toISOString().split('T')[0];
+    
+    const stats = await this.db.prepare(`
+      SELECT * FROM clan_stats 
+      WHERE clan_id = ? AND date = ?
+    `).bind(clanId, today).first();
+    
+    if (stats) {
+      return {
+        totalPosts: stats.total_posts as number,
+        dailyActiveUsers: stats.daily_active_users as number,
+        weeklyActiveUsers: stats.weekly_active_users as number,
+        monthlyActiveUsers: stats.monthly_active_users as number,
+        growthRate: stats.growth_rate as number,
+        engagementRate: stats.engagement_rate as number,
+        postsToday: stats.posts_today as number,
+        activeUsers: stats.daily_active_users as number,
+        activeMembers: stats.daily_active_users as number,
+        recentPosts: stats.posts_today as number,
+        recentMembers: stats.new_members as number
+      };
+    }
+    
+    // Return default stats if no data
+    return {
+      totalPosts: 0,
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+      monthlyActiveUsers: 0,
+      growthRate: 0,
+      engagementRate: 0,
+      postsToday: 0,
+      activeUsers: 0,
+      activeMembers: 0,
+      recentPosts: 0,
+      recentMembers: 0
+    };
+  }
+
+  async getClanActivity(clanId: string, timeframe: string): Promise<any[]> {
+    const timeframeDays = {
+      'day': 1,
+      'week': 7,
+      'month': 30
+    };
+    
+    const days = timeframeDays[timeframe as keyof typeof timeframeDays] || 7;
+    
+    const activities = await this.db.prepare(`
+      SELECT 
+        ca.*,
+        u.username,
+        u.profile_image
+      FROM clan_activity ca
+      JOIN users u ON ca.user_id = u.id
+      WHERE ca.clan_id = ? 
+        AND ca.created_at >= datetime('now', '-${days} days')
+      ORDER BY ca.created_at DESC
+      LIMIT 100
+    `).bind(clanId).all();
+    
+    return activities.results.map(a => ({
+      id: a.id,
+      userId: a.user_id,
+      username: a.username,
+      profileImage: a.profile_image,
+      activityType: a.activity_type,
+      targetId: a.target_id,
+      details: a.details ? JSON.parse(a.details as string) : null,
+      createdAt: a.created_at
+    }));
+  }
+
+  private async logActivity(
+    clanId: string, 
+    userId: string, 
+    activityType: string, 
+    targetId: string | null,
+    details?: any
+  ): Promise<void> {
+    const activityId = nanoid();
+    await this.db.prepare(`
+      INSERT INTO clan_activity (id, clan_id, user_id, activity_type, target_id, details, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(
+      activityId,
+      clanId,
+      userId,
+      activityType,
+      targetId,
+      details ? JSON.stringify(details) : null
+    ).run();
   }
 
   async checkUserPermission(
@@ -483,6 +693,7 @@ export class ClanService {
     return userRoleLevel >= requiredRoleLevel;
   }
 
+  // List methods remain similar but return formatted data
   async listClans(options: ListClansOptions): Promise<{
     clans: Clan[];
     total: number;
@@ -493,11 +704,6 @@ export class ClanService {
     // Build query
     let whereClause = 'c.is_active = 1';
     const params: any[] = [];
-    
-    if (options.category) {
-      // This would require a categories table or JSON search
-      // For now, we'll search in cached metadata
-    }
     
     if (options.search) {
       whereClause += ' AND (c.name LIKE ? OR c.description LIKE ?)';
@@ -536,53 +742,36 @@ export class ClanService {
       LIMIT ? OFFSET ?
     `).bind(...params).all();
     
-    // Enrich with metadata and membership status
-    const enrichedClans = await Promise.all(
+    // Format clans
+    const formattedClans = await Promise.all(
       clans.results.map(async (clan) => {
-        const metadataStr = await this.cache.get(`clan:meta:${clan.id}`);
-        const metadata = metadataStr ? JSON.parse(metadataStr) : {};
-        
         let isMember = false;
+        let userRole = undefined;
+        
         if (options.userId) {
           const membership = await this.db.prepare(`
-            SELECT 1 FROM clan_members 
+            SELECT role FROM clan_members 
             WHERE clan_id = ? AND user_id = ?
           `).bind(clan.id, options.userId).first();
-          isMember = !!membership;
+          
+          if (membership) {
+            isMember = true;
+            userRole = membership.role as string;
+          }
         }
         
-        return {
-          id: clan.id as string,
-          name: clan.name as string,
-          displayName: metadata.displayName || clan.name as string,
-          description: clan.description as string,
-          avatar: clan.avatar_url as string || undefined,
-          banner: metadata.banner,
-          theme: metadata.theme,
-          founder_id: clan.founder_id as string,
-          founder: {
-            id: clan.founder_id as string,
-            username: clan.founder_username as string,
-            profile_image: clan.founder_profile_image as string || undefined
-          },
-          member_count: clan.member_count as number,
-          is_active: clan.is_active as boolean,
-          is_private: metadata.isPrivate || false,
-          categories: metadata.categories || [],
-          created_at: clan.created_at as string,
-          updated_at: clan.updated_at as string,
-          isMember
-        };
+        return this.formatClanData(clan, isMember, userRole);
       })
     );
     
     return {
-      clans: enrichedClans,
+      clans: formattedClans,
       total,
       hasMore: offset + options.limit < total
     };
   }
 
+  // Similar updates for other list methods...
   async getUserClans(userId: string, page: number, limit: number): Promise<{
     clans: Clan[];
     total: number;
@@ -616,40 +805,13 @@ export class ClanService {
       LIMIT ? OFFSET ?
     `).bind(userId, limit, offset).all();
     
-    // Enrich with metadata
-    const enrichedClans = await Promise.all(
-      clans.results.map(async (clan) => {
-        const metadataStr = await this.cache.get(`clan:meta:${clan.id}`);
-        const metadata = metadataStr ? JSON.parse(metadataStr) : {};
-        
-        return {
-          id: clan.id as string,
-          name: clan.name as string,
-          displayName: metadata.displayName || clan.name as string,
-          description: clan.description as string,
-          avatar: clan.avatar_url as string || undefined,
-          banner: metadata.banner,
-          theme: metadata.theme,
-          founder_id: clan.founder_id as string,
-          founder: {
-            id: clan.founder_id as string,
-            username: clan.founder_username as string,
-            profile_image: clan.founder_profile_image as string || undefined
-          },
-          member_count: clan.member_count as number,
-          is_active: clan.is_active as boolean,
-          is_private: metadata.isPrivate || false,
-          categories: metadata.categories || [],
-          created_at: clan.created_at as string,
-          updated_at: clan.updated_at as string,
-          isMember: true,
-          userRole: clan.role as string
-        };
-      })
+    // Format clans
+    const formattedClans = clans.results.map(clan => 
+      this.formatClanData(clan, true, clan.role as string)
     );
     
     return {
-      clans: enrichedClans,
+      clans: formattedClans,
       total,
       hasMore: offset + limit < total
     };
@@ -686,7 +848,7 @@ export class ClanService {
     
     const total = countResult?.total as number || 0;
     
-    // Get clans sorted by popularity and recent activity
+    // Get clans
     params.push(options.limit, offset);
     
     const clans = await this.db.prepare(`
@@ -701,115 +863,41 @@ export class ClanService {
       LIMIT ? OFFSET ?
     `).bind(...params).all();
     
-    // Enrich with metadata
-    const enrichedClans = await Promise.all(
-      clans.results.map(async (clan) => {
-        const metadataStr = await this.cache.get(`clan:meta:${clan.id}`);
-        const metadata = metadataStr ? JSON.parse(metadataStr) : {};
-        
-        return {
-          id: clan.id as string,
-          name: clan.name as string,
-          displayName: metadata.displayName || clan.name as string,
-          description: clan.description as string,
-          avatar: clan.avatar_url as string || undefined,
-          banner: metadata.banner,
-          theme: metadata.theme,
-          founder_id: clan.founder_id as string,
-          founder: {
-            id: clan.founder_id as string,
-            username: clan.founder_username as string,
-            profile_image: clan.founder_profile_image as string || undefined
-          },
-          member_count: clan.member_count as number,
-          is_active: clan.is_active as boolean,
-          is_private: metadata.isPrivate || false,
-          categories: metadata.categories || [],
-          created_at: clan.created_at as string,
-          updated_at: clan.updated_at as string,
-          isMember: false
-        };
-      })
+    // Format clans
+    const formattedClans = clans.results.map(clan => 
+      this.formatClanData(clan, false, undefined)
     );
     
     return {
-      clans: enrichedClans,
+      clans: formattedClans,
       total,
       hasMore: offset + options.limit < total
     };
   }
 
-  async getTrendingClans(timeframe: string, limit: number): Promise<{
-    clans: Clan[];
-  }> {
-    // Calculate time window
-    let timeWindow = '7 days';
-    if (timeframe === 'day') {
-      timeWindow = '1 day';
-    } else if (timeframe === 'month') {
-      timeWindow = '30 days';
-    }
-    
-    // Get trending clans based on recent activity and growth
+  async getTrendingClans(timeframe: string, limit: number): Promise<{ clans: Clan[] }> {
     const clans = await this.db.prepare(`
       SELECT 
         c.*,
         u.username as founder_username,
         u.profile_image as founder_profile_image,
-        COUNT(DISTINCT p.id) as recent_posts,
-        COUNT(DISTINCT cm.user_id) as recent_members
+        COUNT(DISTINCT ca.id) as recent_activity
       FROM clans c
       JOIN users u ON c.founder_id = u.id
-      LEFT JOIN posts p ON p.clan_id = c.id 
-        AND p.created_at > datetime('now', '-${timeWindow}')
-      LEFT JOIN clan_members cm ON cm.clan_id = c.id 
-        AND cm.joined_at > datetime('now', '-${timeWindow}')
+      LEFT JOIN clan_activity ca ON c.id = ca.clan_id 
+        AND ca.created_at >= datetime('now', '-7 days')
       WHERE c.is_active = 1
       GROUP BY c.id
-      ORDER BY (recent_posts * 2 + recent_members * 3 + c.member_count) DESC
+      ORDER BY recent_activity DESC, c.member_count DESC
       LIMIT ?
     `).bind(limit).all();
     
-    // Enrich with metadata
-    const enrichedClans = await Promise.all(
-      clans.results.map(async (clan) => {
-        const metadataStr = await this.cache.get(`clan:meta:${clan.id}`);
-        const metadata = metadataStr ? JSON.parse(metadataStr) : {};
-        
-        return {
-          id: clan.id as string,
-          name: clan.name as string,
-          displayName: metadata.displayName || clan.name as string,
-          description: clan.description as string,
-          avatar: clan.avatar_url as string || undefined,
-          banner: metadata.banner,
-          theme: metadata.theme,
-          founder_id: clan.founder_id as string,
-          founder: {
-            id: clan.founder_id as string,
-            username: clan.founder_username as string,
-            profile_image: clan.founder_profile_image as string || undefined
-          },
-          member_count: clan.member_count as number,
-          is_active: clan.is_active as boolean,
-          is_private: metadata.isPrivate || false,
-          categories: metadata.categories || [],
-          created_at: clan.created_at as string,
-          updated_at: clan.updated_at as string,
-          stats: {
-            totalPosts: clan.recent_posts as number || 0,
-            postsToday: clan.recent_posts as number || 0,
-            activeMembers: clan.recent_members as number || 0,
-            growthRate: 0,
-            engagementRate: 0,
-            recentPosts: clan.recent_posts as number,
-            recentMembers: clan.recent_members as number
-          } as ClanStats
-        };
-      })
+    // Format clans
+    const formattedClans = clans.results.map(clan => 
+      this.formatClanData(clan, false, undefined)
     );
     
-    return { clans: enrichedClans };
+    return { clans: formattedClans };
   }
 
   async searchClans(query: string, page: number, limit: number): Promise<{
@@ -818,8 +906,6 @@ export class ClanService {
     hasMore: boolean;
   }> {
     const offset = (page - 1) * limit;
-    
-    // Search in name and description
     const searchPattern = `%${query}%`;
     
     // Get total count
@@ -827,8 +913,8 @@ export class ClanService {
       SELECT COUNT(*) as total 
       FROM clans c
       WHERE c.is_active = 1 
-        AND (c.name LIKE ? OR c.description LIKE ?)
-    `).bind(searchPattern, searchPattern).first();
+        AND (c.name LIKE ? OR c.description LIKE ? OR c.display_name LIKE ?)
+    `).bind(searchPattern, searchPattern, searchPattern).first();
     
     const total = countResult?.total as number || 0;
     
@@ -841,122 +927,82 @@ export class ClanService {
       FROM clans c
       JOIN users u ON c.founder_id = u.id
       WHERE c.is_active = 1 
-        AND (c.name LIKE ? OR c.description LIKE ?)
+        AND (c.name LIKE ? OR c.description LIKE ? OR c.display_name LIKE ?)
       ORDER BY 
         CASE 
           WHEN c.name LIKE ? THEN 1
-          ELSE 2
+          WHEN c.display_name LIKE ? THEN 2
+          ELSE 3
         END,
         c.member_count DESC
       LIMIT ? OFFSET ?
-    `).bind(searchPattern, searchPattern, `${query}%`, limit, offset).all();
+    `).bind(
+      searchPattern, searchPattern, searchPattern,
+      query, query,
+      limit, offset
+    ).all();
     
-    // Enrich with metadata
-    const enrichedClans = await Promise.all(
-      clans.results.map(async (clan) => {
-        const metadataStr = await this.cache.get(`clan:meta:${clan.id}`);
-        const metadata = metadataStr ? JSON.parse(metadataStr) : {};
-        
-        return {
-          id: clan.id as string,
-          name: clan.name as string,
-          displayName: metadata.displayName || clan.name as string,
-          description: clan.description as string,
-          avatar: clan.avatar_url as string || undefined,
-          banner: metadata.banner,
-          theme: metadata.theme,
-          founder_id: clan.founder_id as string,
-          founder: {
-            id: clan.founder_id as string,
-            username: clan.founder_username as string,
-            profile_image: clan.founder_profile_image as string || undefined
-          },
-          member_count: clan.member_count as number,
-          is_active: clan.is_active as boolean,
-          is_private: metadata.isPrivate || false,
-          categories: metadata.categories || [],
-          created_at: clan.created_at as string,
-          updated_at: clan.updated_at as string
-        };
-      })
+    // Format clans
+    const formattedClans = clans.results.map(clan => 
+      this.formatClanData(clan, false, undefined)
     );
     
     return {
-      clans: enrichedClans,
+      clans: formattedClans,
       total,
       hasMore: offset + limit < total
     };
   }
 
-  async getClanStats(clanId: string, timeframe: string): Promise<ClanStats> {
-    // Calculate time window
-    let timeWindow = '7 days';
-    if (timeframe === 'day') {
-      timeWindow = '1 day';
-    } else if (timeframe === 'month') {
-      timeWindow = '30 days';
-    }
-    
-    // Get post statistics
-    const postStats = await this.db.prepare(`
-      SELECT 
-        COUNT(*) as total_posts,
-        COUNT(CASE WHEN created_at > datetime('now', '-1 day') THEN 1 END) as posts_today
-      FROM posts
-      WHERE clan_id = ?
-    `).bind(clanId).first();
-    
-    // Get active members count
-    const activeMembers = await this.db.prepare(`
-      SELECT COUNT(DISTINCT p.user_id) as active_members
-      FROM posts p
-      WHERE p.clan_id = ? 
-        AND p.created_at > datetime('now', '-${timeWindow}')
-    `).bind(clanId).first();
-    
-    // Get growth rate (new members in timeframe)
-    const newMembers = await this.db.prepare(`
-      SELECT COUNT(*) as new_members
-      FROM clan_members
-      WHERE clan_id = ? 
-        AND joined_at > datetime('now', '-${timeWindow}')
-    `).bind(clanId).first();
-    
-    // Get total members for growth rate calculation
-    const totalMembers = await this.db.prepare(`
-      SELECT member_count FROM clans WHERE id = ?
-    `).bind(clanId).first();
-    
-    const memberCount = totalMembers?.member_count as number || 1;
-    const growthRate = ((newMembers?.new_members as number || 0) / memberCount) * 100;
-    
-    // Calculate engagement rate (active members / total members)
-    const engagementRate = ((activeMembers?.active_members as number || 0) / memberCount) * 100;
+  // Helper method to format clan data
+  private formatClanData(clan: any, isMember: boolean, userRole?: string): Clan {
+    const theme = clan.theme ? JSON.parse(clan.theme) : undefined;
+    const categories = clan.categories ? JSON.parse(clan.categories) : [];
+    const rules = clan.rules ? JSON.parse(clan.rules) : [];
+    const settings = clan.settings ? JSON.parse(clan.settings) : undefined;
     
     return {
-      totalPosts: postStats?.total_posts as number || 0,
-      postsToday: postStats?.posts_today as number || 0,
-      activeMembers: activeMembers?.active_members as number || 0,
-      growthRate: Math.round(growthRate * 100) / 100,
-      engagementRate: Math.round(engagementRate * 100) / 100
+      id: clan.id,
+      name: clan.name,
+      displayName: clan.display_name || clan.name,
+      description: clan.description,
+      avatar: clan.avatar_url || undefined,
+      banner: clan.banner_url || undefined,
+      theme,
+      founder: clan.founder_id, // Return as 'founder'
+      founder_details: {
+        id: clan.founder_id,
+        username: clan.founder_username,
+        profileImage: clan.founder_profile_image || undefined
+      },
+      memberCount: clan.member_count,
+      settings,
+      rules,
+      categories,
+      tags: [],
+      status: clan.is_active ? 'active' : 'suspended',
+      verificationStatus: clan.verification_status,
+      isPrivate: clan.is_private,
+      createdAt: clan.created_at,
+      updatedAt: clan.updated_at,
+      isMember,
+      userRole
     };
   }
 
+  // Cache management methods
   private async clearClanCache(clanId: string): Promise<void> {
-    // Clear all cached versions of this clan
-    const cachePattern = `clan:${clanId}:`;
-    // Note: KV doesn't support pattern deletion, so we track keys separately
-    // In production, you might want to use a different caching strategy
-    
-    // For now, clear known patterns
-    await this.cache.delete(`clan:${clanId}:public`);
-    // Clear user-specific caches would require tracking user IDs
+    const keys = await this.cache.list({ prefix: `clan:${clanId}:` });
+    for (const key of keys.keys) {
+      await this.cache.delete(key.name);
+    }
   }
 
   private async invalidateClanCaches(userId: string): Promise<void> {
-    // Clear user's clan list cache
-    await this.cache.delete(`user:clans:${userId}`);
-    // Clear discovery cache if it exists
-    await this.cache.delete(`clans:discover:${userId}`);
+    // Invalidate user-specific caches
+    const keys = await this.cache.list({ prefix: `user:${userId}:clans` });
+    for (const key of keys.keys) {
+      await this.cache.delete(key.name);
+    }
   }
 }

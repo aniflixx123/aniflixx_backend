@@ -424,6 +424,168 @@ router.get('/:userId/following', async (c) => {
     return c.json({ success: false, error: 'Failed to get following' }, 500);
   }
 });
+// Add these to workers/api-worker/src/routes/users.ts
+
+// Follow a user
+router.post('/:userId/follow', async (c) => {
+  try {
+    const currentUser = c.get('user');
+    if (!currentUser) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    const targetUserId = c.req.param('userId');
+    
+    // Can't follow yourself
+    if (currentUser.id === targetUserId) {
+      return c.json({ success: false, error: 'Cannot follow yourself' }, 400);
+    }
+    
+    // Check if user exists
+    const targetUser = await c.env.DB.prepare(
+      'SELECT id, followers_count FROM users WHERE id = ?'
+    ).bind(targetUserId).first();
+    
+    if (!targetUser) {
+      return c.json({ success: false, error: 'User not found' }, 404);
+    }
+    
+    // Check if already following
+    const existingFollow = await c.env.DB.prepare(
+      'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
+    ).bind(currentUser.id, targetUserId).first();
+    
+    if (existingFollow) {
+      return c.json({ success: false, error: 'Already following this user' }, 409);
+    }
+    
+    // Start transaction
+    const batch: any[] = [];
+    
+    // Insert follow record
+    batch.push(
+      c.env.DB.prepare(
+        'INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)'
+      ).bind(currentUser.id, targetUserId, new Date().toISOString())
+    );
+    
+    // Update follower count for target user
+    batch.push(
+      c.env.DB.prepare(
+        'UPDATE users SET followers_count = followers_count + 1 WHERE id = ?'
+      ).bind(targetUserId)
+    );
+    
+    // Update following count for current user
+    batch.push(
+      c.env.DB.prepare(
+        'UPDATE users SET following_count = following_count + 1 WHERE id = ?'
+      ).bind(currentUser.id)
+    );
+    
+    // Execute all queries
+    await c.env.DB.batch(batch);
+    
+    // Invalidate caches
+    await Promise.all([
+      c.env.CACHE.delete(`user:${currentUser.id}`),
+      c.env.CACHE.delete(`user:${targetUserId}`)
+    ]);
+    
+    // Get updated counts
+    const [currentUserData, targetUserData] = await Promise.all([
+      c.env.DB.prepare('SELECT following_count FROM users WHERE id = ?').bind(currentUser.id).first(),
+      c.env.DB.prepare('SELECT followers_count FROM users WHERE id = ?').bind(targetUserId).first()
+    ]);
+    
+    return c.json({
+      success: true,
+      isFollowing: true,
+      followersCount: targetUserData?.followers_count || 0,
+      followingCount: currentUserData?.following_count || 0
+    });
+    
+  } catch (error) {
+    console.error('Follow user error:', error);
+    return c.json({ success: false, error: 'Failed to follow user' }, 500);
+  }
+});
+
+// Unfollow a user
+router.post('/:userId/unfollow', async (c) => {
+  try {
+    const currentUser = c.get('user');
+    if (!currentUser) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    
+    const targetUserId = c.req.param('userId');
+    
+    // Can't unfollow yourself
+    if (currentUser.id === targetUserId) {
+      return c.json({ success: false, error: 'Cannot unfollow yourself' }, 400);
+    }
+    
+    // Check if following
+    const existingFollow = await c.env.DB.prepare(
+      'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
+    ).bind(currentUser.id, targetUserId).first();
+    
+    if (!existingFollow) {
+      return c.json({ success: false, error: 'Not following this user' }, 409);
+    }
+    
+    // Start transaction
+    const batch: any[] = [];
+    
+    // Delete follow record
+    batch.push(
+      c.env.DB.prepare(
+        'DELETE FROM follows WHERE follower_id = ? AND following_id = ?'
+      ).bind(currentUser.id, targetUserId)
+    );
+    
+    // Update follower count for target user
+    batch.push(
+      c.env.DB.prepare(
+        'UPDATE users SET followers_count = MAX(0, followers_count - 1) WHERE id = ?'
+      ).bind(targetUserId)
+    );
+    
+    // Update following count for current user
+    batch.push(
+      c.env.DB.prepare(
+        'UPDATE users SET following_count = MAX(0, following_count - 1) WHERE id = ?'
+      ).bind(currentUser.id)
+    );
+    
+    // Execute all queries
+    await c.env.DB.batch(batch);
+    
+    // Invalidate caches
+    await Promise.all([
+      c.env.CACHE.delete(`user:${currentUser.id}`),
+      c.env.CACHE.delete(`user:${targetUserId}`)
+    ]);
+    
+    // Get updated counts
+    const [currentUserData, targetUserData] = await Promise.all([
+      c.env.DB.prepare('SELECT following_count FROM users WHERE id = ?').bind(currentUser.id).first(),
+      c.env.DB.prepare('SELECT followers_count FROM users WHERE id = ?').bind(targetUserId).first()
+    ]);
+    
+    return c.json({
+      success: true,
+      isFollowing: false,
+      followersCount: targetUserData?.followers_count || 0,
+      followingCount: currentUserData?.following_count || 0
+    });
+    
+  } catch (error) {
+    console.error('Unfollow user error:', error);
+    return c.json({ success: false, error: 'Failed to unfollow user' }, 500);
+  }
+});
 
 
 

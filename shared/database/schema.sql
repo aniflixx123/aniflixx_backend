@@ -1,4 +1,5 @@
 -- Fixed and optimized database schema for Cloudflare D1
+-- Complete schema with all clan-related tables
 
 -- Create base tables first
 CREATE TABLE IF NOT EXISTS users (
@@ -41,7 +42,8 @@ CREATE TABLE IF NOT EXISTS posts (
   shares_count INTEGER DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE SET NULL
 );
 
 -- Flicks table (main video content)
@@ -87,7 +89,6 @@ CREATE TABLE IF NOT EXISTS flick_analytics (
   FOREIGN KEY (flick_id) REFERENCES flicks(id) ON DELETE CASCADE
 );
 
--- Rename likes tables to avoid conflicts
 -- Post likes
 CREATE TABLE IF NOT EXISTS post_likes (
   user_id TEXT NOT NULL,
@@ -133,7 +134,7 @@ CREATE TABLE IF NOT EXISTS follows (
   CHECK (follower_id != following_id)
 );
 
--- Hub comments (for posts) - WITH likes_count column included
+-- Post comments (for posts)
 CREATE TABLE IF NOT EXISTS post_comments (
   id TEXT PRIMARY KEY,
   post_id TEXT NOT NULL,
@@ -159,6 +160,7 @@ CREATE TABLE IF NOT EXISTS post_shares (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE(post_id, user_id)
 );
+
 -- Post bookmarks table
 CREATE TABLE IF NOT EXISTS post_bookmarks (
   user_id TEXT NOT NULL,
@@ -222,15 +224,27 @@ CREATE TABLE IF NOT EXISTS shares (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Clans table
+-- ========================================
+-- CLAN TABLES - ENHANCED VERSION
+-- ========================================
+
+-- Enhanced Clans table with all needed fields
 CREATE TABLE IF NOT EXISTS clans (
   id TEXT PRIMARY KEY,
   name TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
   description TEXT,
   avatar_url TEXT,
+  banner_url TEXT,
+  theme TEXT, -- JSON string for theme object
   founder_id TEXT NOT NULL,
   member_count INTEGER DEFAULT 1,
   is_active BOOLEAN DEFAULT TRUE,
+  is_private BOOLEAN DEFAULT FALSE,
+  verification_status TEXT DEFAULT 'unverified' CHECK(verification_status IN ('unverified', 'verified', 'official')),
+  categories TEXT, -- JSON array
+  rules TEXT, -- JSON array
+  settings TEXT, -- JSON object
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (founder_id) REFERENCES users(id)
@@ -241,10 +255,71 @@ CREATE TABLE IF NOT EXISTS clan_members (
   clan_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   role TEXT DEFAULT 'member' CHECK(role IN ('founder', 'admin', 'moderator', 'member')),
+  reputation INTEGER DEFAULT 0,
+  contributions INTEGER DEFAULT 0,
   joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (clan_id, user_id),
   FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- NEW: Clan banned users table
+CREATE TABLE IF NOT EXISTS clan_banned_users (
+  id TEXT PRIMARY KEY,
+  clan_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  banned_by TEXT NOT NULL,
+  reason TEXT,
+  banned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (banned_by) REFERENCES users(id),
+  UNIQUE(clan_id, user_id)
+);
+
+-- NEW: Clan activity log table
+CREATE TABLE IF NOT EXISTS clan_activity (
+  id TEXT PRIMARY KEY,
+  clan_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  activity_type TEXT NOT NULL, -- 'post', 'join', 'leave', 'role_change', 'ban', 'unban'
+  target_id TEXT, -- ID of the target (post_id, user_id, etc.)
+  details TEXT, -- JSON object with additional details
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- NEW: Clan stats table (for daily snapshots)
+CREATE TABLE IF NOT EXISTS clan_stats (
+  id TEXT PRIMARY KEY,
+  clan_id TEXT NOT NULL,
+  date DATE NOT NULL,
+  total_posts INTEGER DEFAULT 0,
+  daily_active_users INTEGER DEFAULT 0,
+  weekly_active_users INTEGER DEFAULT 0,
+  monthly_active_users INTEGER DEFAULT 0,
+  new_members INTEGER DEFAULT 0,
+  posts_today INTEGER DEFAULT 0,
+  engagement_rate REAL DEFAULT 0,
+  growth_rate REAL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE,
+  UNIQUE(clan_id, date)
+);
+
+-- NEW: Clan invites table
+CREATE TABLE IF NOT EXISTS clan_invites (
+  id TEXT PRIMARY KEY,
+  clan_id TEXT NOT NULL,
+  invited_by TEXT NOT NULL,
+  invite_code TEXT UNIQUE NOT NULL,
+  max_uses INTEGER DEFAULT 1,
+  uses_count INTEGER DEFAULT 0,
+  expires_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (clan_id) REFERENCES clans(id) ON DELETE CASCADE,
+  FOREIGN KEY (invited_by) REFERENCES users(id)
 );
 
 -- Flick views table (for detailed analytics)
@@ -266,8 +341,8 @@ CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   recipient_id TEXT NOT NULL,
   sender_id TEXT,
-  type TEXT NOT NULL, -- like, comment, follow, mention, post_like, flick_like
-  target_type TEXT, -- post, flick, comment, user
+  type TEXT NOT NULL, -- like, comment, follow, mention, post_like, flick_like, clan_invite, clan_role_change
+  target_type TEXT, -- post, flick, comment, user, clan
   target_id TEXT, -- ID of the target entity
   message TEXT NOT NULL,
   is_read INTEGER DEFAULT 0,
@@ -280,7 +355,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- Reports table
 CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY,
-  type TEXT NOT NULL, -- flick, comment, user, post
+  type TEXT NOT NULL, -- flick, comment, user, post, clan
   target_id TEXT NOT NULL,
   reporter_id TEXT NOT NULL,
   reason TEXT NOT NULL,
@@ -292,7 +367,10 @@ CREATE TABLE IF NOT EXISTS reports (
   FOREIGN KEY (reporter_id) REFERENCES users(id)
 );
 
--- Create indexes for performance
+-- ========================================
+-- INDEXES FOR PERFORMANCE
+-- ========================================
+
 -- User indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -335,7 +413,17 @@ CREATE INDEX IF NOT EXISTS idx_flick_views_created_at ON flick_views(created_at)
 CREATE INDEX IF NOT EXISTS idx_post_likes_post ON post_likes(post_id);
 CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, is_read, created_at DESC);
+
+-- Clan indexes
 CREATE INDEX IF NOT EXISTS idx_clan_members_user ON clan_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_clan_members_clan ON clan_members(clan_id);
+CREATE INDEX IF NOT EXISTS idx_clan_banned_users_clan ON clan_banned_users(clan_id);
+CREATE INDEX IF NOT EXISTS idx_clan_banned_users_user ON clan_banned_users(user_id);
+CREATE INDEX IF NOT EXISTS idx_clan_activity_clan ON clan_activity(clan_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clan_stats_clan_date ON clan_stats(clan_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_clan_invites_code ON clan_invites(invite_code);
+CREATE INDEX IF NOT EXISTS idx_clans_name ON clans(name);
+CREATE INDEX IF NOT EXISTS idx_clans_verification ON clans(verification_status);
 
 -- Additional indexes for new tables
 CREATE INDEX IF NOT EXISTS idx_post_bookmarks_user ON post_bookmarks(user_id);

@@ -116,8 +116,17 @@ mediaRouter.post('/upload/profile-image', async (c) => {
       'UPDATE users SET profile_image = ?, updated_at = ? WHERE id = ?'
     ).bind(imageUrl, now, user.id).run();
     
+    // ADDED: Update profile image in all user's flicks
+    console.log('📝 Updating profile image in all user flicks...');
+    await c.env.DB.prepare(
+      'UPDATE flicks SET profile_image = ?, updated_at = ? WHERE user_id = ?'
+    ).bind(imageUrl, now, user.id).run();
+    
     // Clear user cache
     await c.env.CACHE.delete(`user:${user.id}`);
+    
+    // ADDED: Clear user flicks cache
+    await c.env.CACHE.delete(`user_flicks:${user.id}`);
     
     // Get updated user data
     const updatedUser = await c.env.DB.prepare(`
@@ -126,7 +135,7 @@ mediaRouter.post('/upload/profile-image', async (c) => {
       FROM users WHERE id = ?
     `).bind(user.id).first();
     
-    console.log('✅ Profile updated successfully');
+    console.log('✅ Profile and flicks updated successfully');
     
     return c.json({
       success: true,
@@ -185,8 +194,17 @@ mediaRouter.put('/profile-image-url', async (c) => {
       'UPDATE users SET profile_image = ?, updated_at = ? WHERE id = ?'
     ).bind(imageUrl, now, user.id).run();
     
+    // ADDED: Update profile image in all user's flicks
+    console.log('📝 Updating profile image URL in all user flicks...');
+    await c.env.DB.prepare(
+      'UPDATE flicks SET profile_image = ?, updated_at = ? WHERE user_id = ?'
+    ).bind(imageUrl, now, user.id).run();
+    
     // Clear cache
     await c.env.CACHE.delete(`user:${user.id}`);
+    
+    // ADDED: Clear user flicks cache
+    await c.env.CACHE.delete(`user_flicks:${user.id}`);
     
     return c.json({
       success: true,
@@ -221,8 +239,17 @@ mediaRouter.delete('/profile-image', async (c) => {
       'UPDATE users SET profile_image = NULL, updated_at = ? WHERE id = ?'
     ).bind(now, user.id).run();
     
+    // ADDED: Remove profile image from all user's flicks
+    console.log('📝 Removing profile image from all user flicks...');
+    await c.env.DB.prepare(
+      'UPDATE flicks SET profile_image = NULL, updated_at = ? WHERE user_id = ?'
+    ).bind(now, user.id).run();
+    
     // Clear cache
     await c.env.CACHE.delete(`user:${user.id}`);
+    
+    // ADDED: Clear user flicks cache
+    await c.env.CACHE.delete(`user_flicks:${user.id}`);
     
     return c.json({
       success: true,
@@ -234,6 +261,123 @@ mediaRouter.delete('/profile-image', async (c) => {
     return c.json({ 
       success: false, 
       error: error.message || 'Failed to delete profile image' 
+    }, 500);
+  }
+});
+
+/**
+ * Generic upload endpoint for clan images (avatar/banner)
+ * This can be used for any type of image upload
+ */
+mediaRouter.post('/upload/clan-image', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+
+    console.log('📸 Starting clan image upload for user:', user.id);
+
+    const formData = await c.req.formData();
+    const fileEntry = formData.get('file');
+    const imageType = formData.get('type') as string; // 'avatar' or 'banner'
+    
+    // Check if file exists and is actually a File object
+    if (!fileEntry || typeof fileEntry === 'string') {
+      return c.json({ success: false, error: 'No file provided' }, 400);
+    }
+    
+    const file = fileEntry as File;
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validTypes.includes(file.type)) {
+      return c.json({ 
+        success: false, 
+        error: 'Invalid file type. Accepted: JPEG, PNG, WebP, GIF' 
+      }, 400);
+    }
+
+    // Validate file size (max 10MB for Cloudflare Images)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return c.json({ 
+        success: false, 
+        error: 'File too large. Maximum size is 10MB.' 
+      }, 400);
+    }
+
+    // Create form data for Cloudflare Images API
+    const cfFormData = new FormData();
+    cfFormData.append('file', file);
+    
+    // Add metadata
+    cfFormData.append('metadata', JSON.stringify({
+      userId: user.id,
+      type: imageType || 'clan',
+      uploadedAt: new Date().toISOString()
+    }));
+    
+    // Set require signed URLs to false for public access
+    cfFormData.append('requireSignedURLs', 'false');
+
+    console.log('📤 Uploading to Cloudflare Images...');
+    
+    // Upload to Cloudflare Images
+    const uploadResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${c.env.CLOUDFLARE_ACCOUNT_ID}/images/v1`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.CLOUDFLARE_API_TOKEN}`,
+        },
+        body: cfFormData,
+      }
+    );
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error('❌ Cloudflare Images upload failed:', errorText);
+      
+      // Check if Cloudflare Images is not enabled
+      if (uploadResponse.status === 403) {
+        return c.json({ 
+          success: false, 
+          error: 'Cloudflare Images is not enabled on this account. Please enable it in your Cloudflare dashboard.' 
+        }, 503);
+      }
+      
+      throw new Error(`Upload failed: ${errorText}`);
+    }
+
+    const uploadResult = await uploadResponse.json() as any;
+    console.log('✅ Upload successful:', uploadResult);
+
+    if (!uploadResult.success || !uploadResult.result) {
+      throw new Error('Invalid response from Cloudflare Images');
+    }
+
+    // Get the image URL - use the 'public' variant
+    const imageUrl = uploadResult.result.variants?.[0] || 
+                    `https://imagedelivery.net/${c.env.CLOUDFLARE_ACCOUNT_ID}/${uploadResult.result.id}/public`;
+
+    console.log('✅ Clan image uploaded successfully');
+    
+    return c.json({
+      success: true,
+      data: {
+        url: imageUrl,
+        cloudflareImageId: uploadResult.result.id,
+        variants: uploadResult.result.variants, // Different sizes available
+        message: 'Clan image uploaded successfully'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Clan image upload error:', error);
+    return c.json({ 
+      success: false, 
+      error: error.message || 'Failed to upload clan image' 
     }, 500);
   }
 });

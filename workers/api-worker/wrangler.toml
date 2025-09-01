@@ -47,3 +47,7 @@ new_classes = ["PostCounter"]
 [[migrations]]
 tag = "v2"
 new_classes = ["FlickCounter", "ViewerTracker"]
+
+[[migrations]]
+tag = "v3"
+new_classes = []

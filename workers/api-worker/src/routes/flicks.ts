@@ -102,6 +102,90 @@ flicksRouter.post('/register', async (c) => {
   }
 });
 
+// Update the trending endpoint in flicks.ts with more logging:
+
+// Get trending flicks
+flicksRouter.get('/trending', async (c) => {
+  console.log('📊 Trending endpoint called');
+  const user = c.get('user');
+  console.log('👤 User requesting trending:', user.id, user.username);
+  
+  const services = getServices(c.env);
+  
+  const page = parseInt(c.req.query('page') || '1');
+  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
+  console.log('📄 Pagination:', { page, limit });
+  
+  try {
+    console.log('🔄 Calling getTrendingFlicks service method...');
+    const result = await services.flicks.getTrendingFlicks(page, limit);
+    console.log('✅ Trending flicks result:', {
+      flicksCount: result.flicks?.length || 0,
+      total: result.total,
+      hasMore: result.hasMore
+    });
+
+    return c.json({
+      success: true,
+      data: result.flicks,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error fetching trending flicks:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    return c.json({ success: false, error: 'Failed to load trending flicks' }, 500);
+  }
+});
+// Get saved flicks
+// Update your /saved endpoint with logging:
+
+// Get saved flicks
+flicksRouter.get('/saved', async (c) => {
+  console.log('📚 Saved flicks endpoint called');
+  const user = c.get('user');
+  console.log('👤 User requesting saved flicks:', user.id, user.username);
+  
+  const services = getServices(c.env);
+  
+  const page = parseInt(c.req.query('page') || '1');
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 50);
+  console.log('📄 Pagination:', { page, limit });
+
+  try {
+    console.log('🔄 Calling getSavedFlicks service method...');
+    const result = await services.flicks.getSavedFlicks(user.id, page, limit);
+    console.log('✅ Saved flicks result:', {
+      flicksCount: result.flicks?.length || 0,
+      total: result.total,
+      hasMore: result.hasMore
+    });
+    
+    if (result.flicks && result.flicks.length > 0) {
+      console.log('🎬 First saved flick:', result.flicks[0]);
+    }
+
+    return c.json({
+      success: true,
+      data: result.flicks,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error fetching saved flicks:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    return c.json({ success: false, error: 'Failed to load saved flicks' }, 500);
+  }
+});
+
 // Get flicks feed
 flicksRouter.get('/', async (c) => {
   const user = c.get('user');
@@ -126,6 +210,34 @@ flicksRouter.get('/', async (c) => {
   } catch (error) {
     console.error('Error fetching flicks:', error);
     return c.json({ success: false, error: 'Failed to load flicks' }, 500);
+  }
+});
+
+// Get user's uploaded flicks
+flicksRouter.get('/user/:userId', async (c) => {
+  const currentUser = c.get('user');
+  const targetUserId = c.req.param('userId');
+  const services = getServices(c.env);
+  
+  const page = parseInt(c.req.query('page') || '1');
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 50);
+
+  try {
+    const result = await services.flicks.getUserFlicks(targetUserId, currentUser.id, page, limit);
+
+    return c.json({
+      success: true,
+      data: result.flicks,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        hasMore: result.hasMore,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching user flicks:', error);
+    return c.json({ success: false, error: 'Failed to load user flicks' }, 500);
   }
 });
 
@@ -224,61 +336,6 @@ flicksRouter.post('/:flickId/view', async (c) => {
   } catch (error) {
     console.error('Error tracking view:', error);
     return c.json({ success: false, error: 'Failed to track view' }, 500);
-  }
-});
-
-// Get user's uploaded flicks
-flicksRouter.get('/user/:userId', async (c) => {
-  const currentUser = c.get('user');
-  const targetUserId = c.req.param('userId');
-  const services = getServices(c.env);
-  
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 50);
-
-  try {
-    const result = await services.flicks.getUserFlicks(targetUserId, currentUser.id, page, limit);
-
-    return c.json({
-      success: true,
-      data: result.flicks,
-      pagination: {
-        page,
-        limit,
-        total: result.total,
-        hasMore: result.hasMore,
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching user flicks:', error);
-    return c.json({ success: false, error: 'Failed to load user flicks' }, 500);
-  }
-});
-
-// Get saved flicks
-flicksRouter.get('/saved', async (c) => {
-  const user = c.get('user');
-  const services = getServices(c.env);
-  
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 50);
-
-  try {
-    const result = await services.flicks.getSavedFlicks(user.id, page, limit);
-
-    return c.json({
-      success: true,
-      data: result.flicks,
-      pagination: {
-        page,
-        limit,
-        total: result.total,
-        hasMore: result.hasMore,
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching saved flicks:', error);
-    return c.json({ success: false, error: 'Failed to load saved flicks' }, 500);
   }
 });
 
