@@ -44,7 +44,7 @@ flicksRouter.post('/upload-url', async (c) => {
 
   try {
     const body = await c.req.json();
-    const data = uploadUrlSchema.parse(body);
+    const data:any = uploadUrlSchema.parse(body);
 
     const result = await services.flicks.generateUploadUrl(user.id, data);
 
@@ -72,7 +72,7 @@ flicksRouter.post('/register', async (c) => {
 
   try {
     const body = await c.req.json();
-    const data = registerFlickSchema.parse(body);
+    const data :any= registerFlickSchema.parse(body);
 
     const flick = await services.flicks.registerFlick(user.id, data);
 
