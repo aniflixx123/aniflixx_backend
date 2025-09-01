@@ -279,13 +279,6 @@ router.get('/:userId', async (c) => {
     const userId = c.req.param('userId');
     const currentUser = c.get('user');
     
-    // Try cache first
-    const cacheKey = `user:${userId}`;
-    const cached = await c.env.CACHE.get(cacheKey, 'json');
-    if (cached) {
-      return c.json({ success: true, data: cached });
-    }
-    
     // Get from database
     const userData = await c.env.DB.prepare(`
       SELECT 
@@ -307,26 +300,27 @@ router.get('/:userId', async (c) => {
         'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
       ).bind(currentUser.id, userId).first();
       isFollowing = !!follow;
+      
+      console.log(`Follow check - User ${currentUser.id} following ${userId}:`, isFollowing);
     }
     
+    // Include is_following in the userData object
     const result = {
       ...userData,
-      isFollowing
+      is_following: isFollowing
     };
     
-    // Cache for 10 minutes
-    await c.env.CACHE.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 600
+    return c.json({ 
+      success: true, 
+      data: result,  // Now includes is_following
+      isFollowing: isFollowing  // Keep at root level for compatibility
     });
-    
-    return c.json({ success: true, data: result });
     
   } catch (error) {
     console.error('Get user by ID error:', error);
     return c.json({ success: false, error: 'Failed to get user' }, 500);
   }
 });
-
 // Get user's followers
 router.get('/:userId/followers', async (c) => {
   try {
@@ -488,9 +482,11 @@ router.post('/:userId/follow', async (c) => {
     
     // Invalidate caches
     await Promise.all([
-      c.env.CACHE.delete(`user:${currentUser.id}`),
-      c.env.CACHE.delete(`user:${targetUserId}`)
-    ]);
+  c.env.CACHE.delete(`user:${currentUser.id}`),
+  c.env.CACHE.delete(`user:${targetUserId}`),
+  // Also delete any cached profile queries
+  c.env.CACHE.delete(`user:${targetUserId}:${currentUser.id}`)
+]);
     
     // Get updated counts
     const [currentUserData, targetUserData] = await Promise.all([
@@ -564,9 +560,11 @@ router.post('/:userId/unfollow', async (c) => {
     
     // Invalidate caches
     await Promise.all([
-      c.env.CACHE.delete(`user:${currentUser.id}`),
-      c.env.CACHE.delete(`user:${targetUserId}`)
-    ]);
+  c.env.CACHE.delete(`user:${currentUser.id}`),
+  c.env.CACHE.delete(`user:${targetUserId}`),
+  // Also delete any cached profile queries
+  c.env.CACHE.delete(`user:${targetUserId}:${currentUser.id}`)
+]);
     
     // Get updated counts
     const [currentUserData, targetUserData] = await Promise.all([
