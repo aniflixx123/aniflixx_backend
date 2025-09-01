@@ -25,7 +25,7 @@ const uploadUrlSchema = z.object({
 });
 
 const registerFlickSchema = z.object({
-  videoId: z.string(),
+  video_id: z.string(),  // Changed from videoId to video_id
   title: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   hashtags: z.string().optional(),
@@ -74,8 +74,14 @@ flicksRouter.post('/register', async (c) => {
     const body = await c.req.json();
     const data :any= registerFlickSchema.parse(body);
 
-    const flick = await services.flicks.registerFlick(user.id, data);
-
+    // In flicks.ts route handler, update line 73-77:
+const flick = await services.flicks.registerFlick(user.id, {
+  videoId: data.video_id,
+  title: data.title,
+  description: data.description,
+  hashtags: data.hashtags,
+  skipProcessingWait: data.skip_processing_wait
+});
     return c.json({
       success: true,
       data: {
