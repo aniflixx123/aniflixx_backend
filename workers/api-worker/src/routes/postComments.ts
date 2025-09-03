@@ -80,7 +80,7 @@ router.post('/', async (c) => {
       'SELECT username, profile_image FROM users WHERE id = ?'
     ).bind(user.id).first();
 
-    // Create notification if not commenting on own post
+    // Create notification if not commenting on own post - FIXED
     if (post.user_id !== user.id) {
       await c.env.DB.prepare(`
         INSERT INTO notifications (
@@ -119,6 +119,7 @@ router.post('/', async (c) => {
         parentId: parentId || null,
         parentCommentId: parentId || null,
         likes: 0,
+        likesCount: 0,
         isLiked: false,
         replies: [],
         replyCount: 0,
@@ -149,6 +150,13 @@ router.get('/post/:postId', async (c) => {
   const offset = (page - 1) * limit;
 
   try {
+    // Get total count
+    const totalResult = await c.env.DB.prepare(
+      'SELECT COUNT(*) as total FROM post_comments WHERE post_id = ? AND parent_id IS NULL'
+    ).bind(postId).first();
+    
+    const total = totalResult?.total as number || 0;
+
     // Get comments with user info and like status
     const commentsData = await c.env.DB.prepare(`
       SELECT 
@@ -163,10 +171,9 @@ router.get('/post/:postId', async (c) => {
       WHERE c.post_id = ? AND c.parent_id IS NULL
       ORDER BY c.created_at DESC
       LIMIT ? OFFSET ?
-    `).bind(user?.id || '', postId, limit + 1, offset).all();
+    `).bind(user?.id || '', postId, limit, offset).all();
 
-    const hasMore = commentsData.results.length > limit;
-    const comments = commentsData.results.slice(0, limit).map((comment: any) => ({
+    const comments = commentsData.results.map((comment: any) => ({
       id: comment.id,
       _id: comment.id,
       postId: comment.post_id,
@@ -179,8 +186,8 @@ router.get('/post/:postId', async (c) => {
       parentId: comment.parent_id,
       parentCommentId: comment.parent_id,
       likes: comment.likes_count || 0,
+      likesCount: comment.likes_count || 0,
       isLiked: !!comment.is_liked,
-      replies: [],
       replyCount: comment.reply_count || 0,
       createdAt: comment.created_at,
       updatedAt: comment.updated_at,
@@ -189,12 +196,11 @@ router.get('/post/:postId', async (c) => {
     return c.json({
       success: true,
       data: comments,
-      comments, // For backward compatibility
       pagination: {
         page,
         limit,
-        total: comments.length,
-        hasMore,
+        total,
+        hasMore: offset + limit < total,
       },
     });
   } catch (error) {
@@ -235,6 +241,7 @@ router.get('/:commentId/replies', async (c) => {
       parentId: reply.parent_id,
       parentCommentId: reply.parent_id,
       likes: reply.likes_count || 0,
+      likesCount: reply.likes_count || 0,
       isLiked: !!reply.is_liked,
       createdAt: reply.created_at,
       updatedAt: reply.updated_at,
@@ -262,7 +269,7 @@ router.post('/:commentId/like', async (c) => {
   try {
     // Check if comment exists
     const comment = await c.env.DB.prepare(
-      'SELECT id, post_id FROM post_comments WHERE id = ?'
+      'SELECT id, post_id, user_id FROM post_comments WHERE id = ?'
     ).bind(commentId).first();
 
     if (!comment) {
@@ -305,6 +312,30 @@ router.post('/:commentId/like', async (c) => {
       await c.env.DB.prepare(
         'UPDATE post_comments SET likes_count = likes_count + 1 WHERE id = ?'
       ).bind(commentId).run();
+
+      // Create notification if not liking own comment
+      if (comment.user_id !== user.id) {
+        const userInfo = await c.env.DB.prepare(
+          'SELECT username FROM users WHERE id = ?'
+        ).bind(user.id).first();
+
+        await c.env.DB.prepare(`
+          INSERT INTO notifications (
+            id, recipient_id, sender_id, type, target_type, target_id,
+            message, is_read, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          nanoid(),
+          comment.user_id,
+          user.id,
+          'comment_like',
+          'comment',
+          commentId,
+          `${userInfo?.username || 'Someone'} liked your comment`,
+          0,
+          new Date().toISOString()
+        ).run();
+      }
 
       // Invalidate cache
       await c.env.CACHE.delete(`post:comments:${comment.post_id}`);

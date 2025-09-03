@@ -30,6 +30,8 @@ export interface AuthUser {
   username: string;
 }
 
+// Add is_liked to Post interface in workers/api-worker/src/types.ts
+
 export interface Post {
   id: string;
   user_id: string;
@@ -43,6 +45,7 @@ export interface Post {
   shares_count: number;
   created_at: string;
   updated_at: string;
+  is_liked?: boolean;  // Add this field
 }
 
 export interface Flick {

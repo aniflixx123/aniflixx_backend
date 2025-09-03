@@ -1,6 +1,9 @@
 // workers/api-worker/src/services/post.service.ts
 
 import { nanoid } from 'nanoid';
+import type { D1Database } from '@cloudflare/workers-types';
+import type { KVNamespace } from '@cloudflare/workers-types';
+import type { DurableObjectNamespace } from '@cloudflare/workers-types';
 import type { Post } from '../types';
 
 interface CreatePostData {
@@ -31,9 +34,9 @@ export class PostService {
     // Insert post
     await this.db.prepare(`
       INSERT INTO posts (
-        id, user_id, content, media_urls, type, 
-        visibility, clan_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, user_id, content, media_urls, type, visibility, clan_id,
+        likes_count, comments_count, shares_count, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
     `).bind(
       postId,
       data.user_id,
@@ -47,23 +50,40 @@ export class PostService {
     ).run();
     
     // Update user's post count
-    await this.db.prepare(`
-      UPDATE users 
-      SET posts_count = posts_count + 1,
-          updated_at = ?
-      WHERE id = ?
-    `).bind(now, data.user_id).run();
+    await this.db.prepare(
+      'UPDATE users SET posts_count = posts_count + 1 WHERE id = ?'
+    ).bind(data.user_id).run();
     
-    // Invalidate caches
-    await this.invalidateUserCache(data.user_id);
-    await this.invalidateFeedCaches(data.user_id);
+    // Initialize counters in Durable Object
+    const counterId = this.counters.idFromName(postId);
+    const counter = this.counters.get(counterId);
+    await counter.fetch(new Request('http://internal/init', {
+      method: 'POST',
+      body: JSON.stringify({ likes: 0, comments: 0, shares: 0 })
+    }));
     
-    return this.getPost(postId, data.user_id) as Promise<Post>;
+    // Invalidate user's feed cache
+    await this.cache.delete(`feed:home:${data.user_id}`);
+    
+    return {
+      id: postId,
+      user_id: data.user_id,
+      content: data.content,
+      media_urls: data.media_urls || null,
+      type: data.type,
+      visibility: data.visibility,
+      clan_id: data.clan_id || null,
+      likes_count: 0,
+      comments_count: 0,
+      shares_count: 0,
+      created_at: now,
+      updated_at: now
+    };
   }
   
   async getPost(postId: string, viewerId?: string): Promise<Post | null> {
     // Try cache first
-    const cacheKey = `post:${postId}`;
+    const cacheKey = `post:${postId}${viewerId ? `:${viewerId}` : ''}`;
     const cached = await this.cache.get(cacheKey, 'json');
     if (cached) {
       return cached as Post;
@@ -71,13 +91,7 @@ export class PostService {
     
     // Get from database
     const result = await this.db.prepare(`
-      SELECT 
-        p.*,
-        u.username,
-        u.profile_image as user_profile_image
-      FROM posts p
-      JOIN users u ON p.user_id = u.id
-      WHERE p.id = ?
+      SELECT * FROM posts WHERE id = ?
     `).bind(postId).first();
     
     if (!result) {
@@ -98,11 +112,29 @@ export class PostService {
     }
     
     // Get counters from Durable Object
-    const counterId = this.counters.idFromName(postId);
-    const counter = this.counters.get(counterId);
-    const countsResponse = await counter.fetch(new Request('http://counter/get'));
-    const counts = await countsResponse.json() as Record<string, number>;
+    let counts: Record<string, number> = { likes: 0, comments: 0, shares: 0 };
+    try {
+      const counterId = this.counters.idFromName(postId);
+      const counter = this.counters.get(counterId);
+      const countsResponse = await counter.fetch(new Request('http://internal/get'));
+      if (countsResponse.ok) {
+        counts = await countsResponse.json() as Record<string, number>;
+      }
+    } catch (error) {
+      console.error('Failed to get counters from Durable Object:', error);
+      // Fall back to database values
+    }
     
+    // Check if user liked this post
+    let isLiked = false;
+    if (viewerId) {
+      const likeCheck = await this.db.prepare(
+        'SELECT 1 FROM post_likes WHERE user_id = ? AND post_id = ?'
+      ).bind(viewerId, postId).first();
+      isLiked = !!likeCheck;
+    }
+    
+    // FIX: Properly handle the count values with type safety
     const post: Post = {
       id: result.id as string,
       user_id: result.user_id as string,
@@ -111,11 +143,12 @@ export class PostService {
       type: result.type as 'text' | 'image' | 'video',
       visibility: result.visibility as 'public' | 'followers' | 'clan',
       clan_id: result.clan_id as string | null,
-      likes_count: counts.likes || 0,
-      comments_count: counts.comments || 0,
-      shares_count: counts.shares || 0,
+      likes_count: Number(counts.likes || result.likes_count || 0),
+      comments_count: Number(counts.comments || result.comments_count || 0),
+      shares_count: Number(counts.shares || result.shares_count || 0),
       created_at: result.created_at as string,
-      updated_at: result.updated_at as string
+      updated_at: result.updated_at as string,
+      is_liked: isLiked
     };
     
     // Cache for 5 minutes
@@ -170,17 +203,30 @@ export class PostService {
       throw new Error('Post not found');
     }
     
-    // Delete post and related data
+    // Delete post and related data - FIXED to use post_likes
     await this.db.batch([
       this.db.prepare('DELETE FROM posts WHERE id = ?').bind(postId),
-      this.db.prepare('DELETE FROM likes WHERE post_id = ?').bind(postId),
-      this.db.prepare('DELETE FROM comments WHERE post_id = ?').bind(postId),
+      this.db.prepare('DELETE FROM post_likes WHERE post_id = ?').bind(postId),
+      this.db.prepare('DELETE FROM post_comments WHERE post_id = ?').bind(postId),
+      this.db.prepare('DELETE FROM post_shares WHERE post_id = ?').bind(postId),
+      this.db.prepare('DELETE FROM post_bookmarks WHERE post_id = ?').bind(postId),
       this.db.prepare(`
         UPDATE users 
-        SET posts_count = posts_count - 1 
+        SET posts_count = GREATEST(0, posts_count - 1)
         WHERE id = ?
       `).bind(post.user_id)
     ]);
+    
+    // Delete Durable Object counter
+    try {
+      const counterId = this.counters.idFromName(postId);
+      const counter = this.counters.get(counterId);
+      await counter.fetch(new Request('http://internal/delete', {
+        method: 'DELETE'
+      }));
+    } catch (error) {
+      console.error('Failed to delete counter:', error);
+    }
     
     // Invalidate caches
     await this.cache.delete(`post:${postId}`);
@@ -214,7 +260,7 @@ export class PostService {
       `SELECT COUNT(*) as total FROM posts WHERE ${whereClause}`
     ).bind(...params).first();
     
-    const total = countResult?.total as number || 0;
+    const total = Number(countResult?.total || 0);
     
     // Get posts
     const posts = await this.db.prepare(`
@@ -224,7 +270,7 @@ export class PostService {
       LIMIT ? OFFSET ?
     `).bind(...params, limit, offset).all();
     
-    // Enrich with counters
+    // Enrich with counters and check likes
     const enrichedPosts = await Promise.all(
       posts.results.map(post => this.getPost(post.id as string, viewerId))
     );

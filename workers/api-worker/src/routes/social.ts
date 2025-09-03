@@ -15,7 +15,7 @@ type Variables = {
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Like a post
+// Like a post - FIXED VERSION
 router.post('/posts/:postId/like', async (c) => {
   try {
     const postId = c.req.param('postId');
@@ -33,47 +33,61 @@ router.post('/posts/:postId/like', async (c) => {
       return c.json({ success: false, error: 'Post not found' }, 404);
     }
     
-    // Check if already liked
+    // FIX: Use post_likes table instead of likes
     const existingLike = await c.env.DB.prepare(
-      'SELECT 1 FROM likes WHERE user_id = ? AND post_id = ?'
+      'SELECT 1 FROM post_likes WHERE user_id = ? AND post_id = ?'
     ).bind(user.id, postId).first();
     
     if (existingLike) {
       return c.json({ success: false, error: 'Already liked' }, 400);
     }
     
-    // Add like
+    // FIX: Insert into post_likes
     await c.env.DB.prepare(
-      'INSERT INTO likes (user_id, post_id) VALUES (?, ?)'
+      'INSERT INTO post_likes (user_id, post_id) VALUES (?, ?)'
     ).bind(user.id, postId).run();
     
-    // Update counter in Durable Object
+    // Update likes_count in posts table
+    await c.env.DB.prepare(
+      'UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?'
+    ).bind(postId).run();
+    
+    // FIX: Use consistent URL
     const counterId = c.env.POST_COUNTERS.idFromName(postId);
     const counter = c.env.POST_COUNTERS.get(counterId);
-    await counter.fetch(new Request('http://counter/increment', {
+    await counter.fetch(new Request('http://internal/increment', {
       method: 'POST',
       body: JSON.stringify({ field: 'likes' })
     }));
     
-    // Create notification if not liking own post
+    // FIX: Notification with correct schema
     if (post.user_id !== user.id) {
       await c.env.DB.prepare(`
-        INSERT INTO notifications (id, user_id, type, title, message, data)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO notifications (
+          id, recipient_id, sender_id, type, target_type, target_id,
+          message, is_read, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         nanoid(),
         post.user_id,
-        'like',
-        'New Like',
+        user.id,
+        'post_like',
+        'post',
+        postId,
         `${user.username} liked your post`,
-        JSON.stringify({ postId, userId: user.id })
+        0,
+        new Date().toISOString()
       ).run();
     }
     
     // Invalidate post cache
     await c.env.CACHE.delete(`post:${postId}`);
     
-    return c.json({ success: true, message: 'Post liked' });
+    return c.json({ 
+      success: true, 
+      data: { liked: true },
+      message: 'Post liked' 
+    });
     
   } catch (error) {
     console.error('Like post error:', error);
@@ -81,7 +95,7 @@ router.post('/posts/:postId/like', async (c) => {
   }
 });
 
-// Unlike a post
+// Unlike a post - FIXED VERSION
 router.delete('/posts/:postId/like', async (c) => {
   try {
     const postId = c.req.param('postId');
@@ -90,19 +104,24 @@ router.delete('/posts/:postId/like', async (c) => {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
     
-    // Remove like
+    // FIX: Use post_likes table
     const result = await c.env.DB.prepare(
-      'DELETE FROM likes WHERE user_id = ? AND post_id = ?'
+      'DELETE FROM post_likes WHERE user_id = ? AND post_id = ?'
     ).bind(user.id, postId).run();
     
     if (!result.meta.changes) {
       return c.json({ success: false, error: 'Like not found' }, 404);
     }
     
-    // Update counter
+    // Update likes_count in posts table
+    await c.env.DB.prepare(
+      'UPDATE posts SET likes_count = GREATEST(0, likes_count - 1) WHERE id = ?'
+    ).bind(postId).run();
+    
+    // FIX: Use consistent URL
     const counterId = c.env.POST_COUNTERS.idFromName(postId);
     const counter = c.env.POST_COUNTERS.get(counterId);
-    await counter.fetch(new Request('http://counter/decrement', {
+    await counter.fetch(new Request('http://internal/decrement', {
       method: 'POST',
       body: JSON.stringify({ field: 'likes' })
     }));
@@ -110,7 +129,11 @@ router.delete('/posts/:postId/like', async (c) => {
     // Invalidate cache
     await c.env.CACHE.delete(`post:${postId}`);
     
-    return c.json({ success: true, message: 'Post unliked' });
+    return c.json({ 
+      success: true, 
+      data: { liked: false },
+      message: 'Post unliked' 
+    });
     
   } catch (error) {
     console.error('Unlike post error:', error);
@@ -164,17 +187,22 @@ router.post('/users/:userId/follow', async (c) => {
       ).bind(targetUserId)
     ]);
     
-    // Create notification
+    // Create notification with correct schema
     await c.env.DB.prepare(`
-      INSERT INTO notifications (id, user_id, type, title, message, data)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO notifications (
+        id, recipient_id, sender_id, type, target_type, target_id,
+        message, is_read, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       nanoid(),
       targetUserId,
+      user.id,
       'follow',
-      'New Follower',
+      'user',
+      user.id,
       `${user.username} started following you`,
-      JSON.stringify({ userId: user.id })
+      0,
+      new Date().toISOString()
     ).run();
     
     // Invalidate caches
@@ -259,17 +287,22 @@ router.post('/posts/:postId/share', async (c) => {
       return c.json({ success: false, error: 'Post not found' }, 404);
     }
     
-    // Create share
+    // Create share - use post_shares table
     const shareId = nanoid();
     await c.env.DB.prepare(`
-      INSERT INTO shares (id, post_id, user_id, content)
+      INSERT INTO post_shares (id, post_id, user_id, content)
       VALUES (?, ?, ?, ?)
     `).bind(shareId, postId, user.id, validated.data.content || null).run();
+    
+    // Update shares_count in posts table
+    await c.env.DB.prepare(
+      'UPDATE posts SET shares_count = shares_count + 1 WHERE id = ?'
+    ).bind(postId).run();
     
     // Update counter
     const counterId = c.env.POST_COUNTERS.idFromName(postId);
     const counter = c.env.POST_COUNTERS.get(counterId);
-    await counter.fetch(new Request('http://counter/increment', {
+    await counter.fetch(new Request('http://internal/increment', {
       method: 'POST',
       body: JSON.stringify({ field: 'shares' })
     }));
@@ -277,15 +310,20 @@ router.post('/posts/:postId/share', async (c) => {
     // Create notification if not sharing own post
     if (post.user_id !== user.id) {
       await c.env.DB.prepare(`
-        INSERT INTO notifications (id, user_id, type, title, message, data)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO notifications (
+          id, recipient_id, sender_id, type, target_type, target_id,
+          message, is_read, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         nanoid(),
         post.user_id,
+        user.id,
         'share',
-        'Post Shared',
+        'post',
+        postId,
         `${user.username} shared your post`,
-        JSON.stringify({ postId, userId: user.id, shareId })
+        0,
+        new Date().toISOString()
       ).run();
     }
     
@@ -304,7 +342,7 @@ router.post('/posts/:postId/share', async (c) => {
   }
 });
 
-// Get post likes
+// Get post likes - FIXED VERSION
 router.get('/posts/:postId/likes', async (c) => {
   try {
     const postId = c.req.param('postId');
@@ -312,24 +350,24 @@ router.get('/posts/:postId/likes', async (c) => {
     const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
     const offset = (page - 1) * limit;
     
-    // Get total count
+    // FIX: Use post_likes table
     const countResult = await c.env.DB.prepare(
-      'SELECT COUNT(*) as total FROM likes WHERE post_id = ?'
+      'SELECT COUNT(*) as total FROM post_likes WHERE post_id = ?'
     ).bind(postId).first();
     
     const total = countResult?.total as number || 0;
     
-    // Get likes with user info
+    // FIX: Use post_likes table with alias pl
     const likes = await c.env.DB.prepare(`
       SELECT 
         u.id,
         u.username,
         u.profile_image,
-        l.created_at
-      FROM likes l
-      JOIN users u ON l.user_id = u.id
-      WHERE l.post_id = ?
-      ORDER BY l.created_at DESC
+        pl.created_at
+      FROM post_likes pl
+      JOIN users u ON pl.user_id = u.id
+      WHERE pl.post_id = ?
+      ORDER BY pl.created_at DESC
       LIMIT ? OFFSET ?
     `).bind(postId, limit, offset).all();
     
