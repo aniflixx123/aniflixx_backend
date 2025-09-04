@@ -48,9 +48,9 @@ router.post('/posts/:postId/like', async (c) => {
         'DELETE FROM post_likes WHERE post_id = ? AND user_id = ?'
       ).bind(postId, user.id).run();
       
-      // Update count
+      // Update count - FIXED: Use CASE WHEN instead of GREATEST
       await c.env.DB.prepare(
-        'UPDATE posts SET likes_count = GREATEST(0, likes_count - 1) WHERE id = ?'
+        'UPDATE posts SET likes_count = CASE WHEN likes_count > 0 THEN likes_count - 1 ELSE 0 END WHERE id = ?'
       ).bind(postId).run();
       
       // Update counter via Durable Object if available
@@ -152,9 +152,9 @@ router.delete('/posts/:postId/like', async (c) => {
     ).bind(postId, user.id).run();
     
     if (result.meta.changes) {
-      // Update count
+      // Update count - FIXED: Use CASE WHEN instead of GREATEST
       await c.env.DB.prepare(
-        'UPDATE posts SET likes_count = GREATEST(0, likes_count - 1) WHERE id = ?'
+        'UPDATE posts SET likes_count = CASE WHEN likes_count > 0 THEN likes_count - 1 ELSE 0 END WHERE id = ?'
       ).bind(postId).run();
       
       // Update counter via Durable Object if available
@@ -238,7 +238,7 @@ router.post('/posts/:postId/bookmark', async (c) => {
     }
     
   } catch (error) {
-    console.error('Bookmark/unbookmark post error:', error);
+    console.error('Bookmark/unbookmark error:', error);
     return c.json({ 
       success: false, 
       error: 'Failed to update bookmark' 
@@ -246,7 +246,7 @@ router.post('/posts/:postId/bookmark', async (c) => {
   }
 });
 
-// Share a post (HAS id column in post_shares)
+// Share a post - FIXED FOR YOUR SCHEMA
 router.post('/posts/:postId/share', async (c) => {
   try {
     const postId = c.req.param('postId');
@@ -255,14 +255,22 @@ router.post('/posts/:postId/share', async (c) => {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
     
-    const body = await c.req.json().catch(() => ({}));
-    const shareSchema = z.object({
-      content: z.string().max(500).optional()
-    });
+    const bodyText = await c.req.text();
+    let shareContent = null;
     
-    const validated = shareSchema.safeParse(body);
-    if (!validated.success) {
-      return c.json({ success: false, error: 'Invalid input' }, 400);
+    if (bodyText) {
+      try {
+        const body = JSON.parse(bodyText);
+        const validated = z.object({
+          content: z.string().optional(),
+        }).safeParse(body);
+        
+        if (validated.success) {
+          shareContent = validated.data.content || null;
+        }
+      } catch (e) {
+        // Not JSON or invalid, continue without content
+      }
     }
     
     // Check if post exists
@@ -274,7 +282,19 @@ router.post('/posts/:postId/share', async (c) => {
       return c.json({ success: false, error: 'Post not found' }, 404);
     }
     
-    // Create share record (post_shares HAS an id column)
+    // Check if already shared
+    const existingShare = await c.env.DB.prepare(
+      'SELECT id FROM post_shares WHERE post_id = ? AND user_id = ?'
+    ).bind(postId, user.id).first();
+    
+    if (existingShare) {
+      return c.json({ 
+        success: false, 
+        error: 'You have already shared this post' 
+      }, 400);
+    }
+    
+    // Create share
     const shareId = nanoid();
     await c.env.DB.prepare(`
       INSERT INTO post_shares (id, post_id, user_id, content, created_at)
@@ -283,7 +303,7 @@ router.post('/posts/:postId/share', async (c) => {
       shareId, 
       postId, 
       user.id, 
-      validated.data.content || null,
+      shareContent,
       new Date().toISOString()
     ).run();
     
@@ -375,9 +395,9 @@ router.post('/comments/:commentId/like', async (c) => {
         'DELETE FROM post_comment_likes WHERE comment_id = ? AND user_id = ?'
       ).bind(commentId, user.id).run();
       
-      // Update count
+      // Update count - FIXED: Use CASE WHEN instead of GREATEST
       await c.env.DB.prepare(
-        'UPDATE post_comments SET likes_count = GREATEST(0, likes_count - 1) WHERE id = ?'
+        'UPDATE post_comments SET likes_count = CASE WHEN likes_count > 0 THEN likes_count - 1 ELSE 0 END WHERE id = ?'
       ).bind(commentId).run();
       
       return c.json({ 
@@ -464,7 +484,7 @@ router.post('/users/:targetUserId/follow', async (c) => {
       return c.json({ success: false, error: 'User not found' }, 404);
     }
     
-    // Check if already following
+    // Check if already following (follows table has no id column)
     const existingFollow = await c.env.DB.prepare(
       'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
     ).bind(user.id, targetUserId).first();
@@ -476,7 +496,7 @@ router.post('/users/:targetUserId/follow', async (c) => {
       }, 400);
     }
     
-    // Create follow relationship (follows has no id column)
+    // Create follow relationship
     await c.env.DB.prepare(`
       INSERT INTO follows (follower_id, following_id, created_at)
       VALUES (?, ?, ?)
@@ -504,22 +524,16 @@ router.post('/users/:targetUserId/follow', async (c) => {
       user.id,
       'follow',
       'user',
-      user.id,
+      targetUserId,
       `${user.username} started following you`,
       0,
       new Date().toISOString()
     ).run();
     
-    // Invalidate caches
-    await c.env.CACHE.delete(`user:${user.id}`);
-    await c.env.CACHE.delete(`user:${targetUserId}`);
-    await c.env.CACHE.delete(`feed:home:${user.id}`);
-    await c.env.CACHE.delete(`feed:following:${user.id}`);
-    
     return c.json({ 
       success: true, 
       data: { following: true },
-      message: 'User followed successfully' 
+      message: 'Successfully followed user'
     });
     
   } catch (error) {
@@ -546,10 +560,13 @@ router.delete('/users/:targetUserId/follow', async (c) => {
     ).bind(user.id, targetUserId).run();
     
     if (!result.meta.changes) {
-      return c.json({ success: false, error: 'Follow not found' }, 404);
+      return c.json({ 
+        success: false, 
+        error: 'Not following this user' 
+      }, 400);
     }
     
-    // Update user counts
+    // Update user counts - FIXED: Use CASE WHEN instead of GREATEST
     await c.env.DB.batch([
       c.env.DB.prepare(
         'UPDATE users SET following_count = CASE WHEN following_count > 0 THEN following_count - 1 ELSE 0 END WHERE id = ?'
@@ -559,16 +576,10 @@ router.delete('/users/:targetUserId/follow', async (c) => {
       ).bind(targetUserId)
     ]);
     
-    // Invalidate caches
-    await c.env.CACHE.delete(`user:${user.id}`);
-    await c.env.CACHE.delete(`user:${targetUserId}`);
-    await c.env.CACHE.delete(`feed:home:${user.id}`);
-    await c.env.CACHE.delete(`feed:following:${user.id}`);
-    
     return c.json({ 
       success: true, 
       data: { following: false },
-      message: 'User unfollowed successfully' 
+      message: 'Successfully unfollowed user'
     });
     
   } catch (error) {
@@ -580,147 +591,13 @@ router.delete('/users/:targetUserId/follow', async (c) => {
   }
 });
 
-// Get user's followers
-router.get('/users/:userId/followers', async (c) => {
-  try {
-    const userId = c.req.param('userId');
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-    const currentUser = c.get('user');
-    
-    const offset = (page - 1) * limit;
-    
-    // Get followers with user info
-    const result = await c.env.DB.prepare(`
-      SELECT 
-        u.id,
-        u.username,
-        u.profile_image,
-        u.bio,
-        u.is_verified,
-        u.followers_count,
-        u.following_count,
-        f.created_at as followed_at,
-        EXISTS(
-          SELECT 1 FROM follows 
-          WHERE follower_id = ? AND following_id = u.id
-        ) as is_following
-      FROM follows f
-      INNER JOIN users u ON f.follower_id = u.id
-      WHERE f.following_id = ?
-      ORDER BY f.created_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(
-      currentUser?.id || 'none',
-      userId,
-      limit,
-      offset
-    ).all();
-    
-    // Get total count
-    const countResult = await c.env.DB.prepare(
-      'SELECT COUNT(*) as total FROM follows WHERE following_id = ?'
-    ).bind(userId).first();
-    
-    const total = (countResult?.total as number) || 0;
-    
-    return c.json({
-      success: true,
-      data: result.results,
-      pagination: {
-        page,
-        limit,
-        total,
-        hasMore: offset + limit < total
-      }
-    });
-    
-  } catch (error) {
-    console.error('Get followers error:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to get followers',
-      data: []
-    }, 500);
-  }
-});
-
-// Get user's following
-router.get('/users/:userId/following', async (c) => {
-  try {
-    const userId = c.req.param('userId');
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-    const currentUser = c.get('user');
-    
-    const offset = (page - 1) * limit;
-    
-    // Get following with user info
-    const result = await c.env.DB.prepare(`
-      SELECT 
-        u.id,
-        u.username,
-        u.profile_image,
-        u.bio,
-        u.is_verified,
-        u.followers_count,
-        u.following_count,
-        f.created_at as followed_at,
-        EXISTS(
-          SELECT 1 FROM follows 
-          WHERE follower_id = ? AND following_id = u.id
-        ) as is_following
-      FROM follows f
-      INNER JOIN users u ON f.following_id = u.id
-      WHERE f.follower_id = ?
-      ORDER BY f.created_at DESC
-      LIMIT ? OFFSET ?
-    `).bind(
-      currentUser?.id || 'none',
-      userId,
-      limit,
-      offset
-    ).all();
-    
-    // Get total count
-    const countResult = await c.env.DB.prepare(
-      'SELECT COUNT(*) as total FROM follows WHERE follower_id = ?'
-    ).bind(userId).first();
-    
-    const total = (countResult?.total as number) || 0;
-    
-    return c.json({
-      success: true,
-      data: result.results,
-      pagination: {
-        page,
-        limit,
-        total,
-        hasMore: offset + limit < total
-      }
-    });
-    
-  } catch (error) {
-    console.error('Get following error:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to get following',
-      data: []
-    }, 500);
-  }
-});
-
 // Check if following a user
-router.get('/users/:targetUserId/is-following', async (c) => {
+router.get('/users/:targetUserId/follow', async (c) => {
   try {
     const targetUserId = c.req.param('targetUserId');
     const user = c.get('user');
-    
     if (!user) {
-      return c.json({ 
-        success: true, 
-        data: { isFollowing: false }
-      });
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
     
     const follow = await c.env.DB.prepare(
