@@ -26,6 +26,9 @@ export interface Env {
   STRIPE_PUBLISHABLE_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   FRONTEND_URL: string;
+  SUPABASE_URL: string;
+  SUPABASE_ANON_KEY: string;
+  SUPABASE_SERVICE_KEY: string;
 }
 
 export interface AuthUser {

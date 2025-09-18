@@ -440,4 +440,17 @@ export class ViewerTracker implements DurableObject {
   }
 }
 
+app.get('/api/test-auth', authMiddleware, async (c) => {
+  const user:any = c.get('user');
+  return c.json({
+    success: true,
+    message: 'Supabase auth is working!',
+    user: {
+      id: user.id,
+      email: user.email,
+      username: user.username
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 export default app;
