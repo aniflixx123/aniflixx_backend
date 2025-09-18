@@ -8,10 +8,14 @@ ENVIRONMENT = "production"
 AUTH_WORKER_URL = "https://aniflixx-auth.black-poetry-4fa5.workers.dev"
 MEDIA_WORKER_URL = "https://aniflixx-media.black-poetry-4fa5.workers.dev"
 CLOUDFLARE_STREAM_CUSTOMER_CODE = "jvg1dxngjkn57j9y"
+STRIPE_PUBLISHABLE_KEY = "pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr"
+FRONTEND_URL = "https://aniflixx.com"
 
 # Secrets - Set these via command line:
 # wrangler secret put CLOUDFLARE_ACCOUNT_ID
 # wrangler secret put CLOUDFLARE_API_TOKEN
+# wrangler secret put STRIPE_SECRET_KEY
+# wrangler secret put STRIPE_WEBHOOK_SECRET
 
 [[d1_databases]]
 binding = "DB"

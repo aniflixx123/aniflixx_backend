@@ -17,11 +17,15 @@ export interface Env {
   ENVIRONMENT: string;
   AUTH_WORKER_URL: string;
   MEDIA_WORKER_URL: string;
-  
-  // Cloudflare Stream
+  CLOUDFLARE_STREAM_CUSTOMER_CODE: string;
   CLOUDFLARE_ACCOUNT_ID: string;
   CLOUDFLARE_API_TOKEN: string;
-  CLOUDFLARE_STREAM_CUSTOMER_CODE: string;
+  
+  // ADD THESE NEW STRIPE VARIABLES:
+  STRIPE_SECRET_KEY: string;
+  STRIPE_PUBLISHABLE_KEY: string;
+  STRIPE_WEBHOOK_SECRET: string;
+  FRONTEND_URL: string;
 }
 
 export interface AuthUser {

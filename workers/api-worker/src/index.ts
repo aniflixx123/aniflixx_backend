@@ -13,7 +13,8 @@ import { commentsRouter } from './routes/comments';
 import { analyticsRouter } from './routes/analytics';
 import { mediaRouter } from './routes/media';
 import { postCommentsRouter } from './routes/postComments';
-import { clansRouter } from './routes/clans'; // ADD THIS IMPORT
+import { clansRouter } from './routes/clans';
+import { paymentsRouter } from './routes/payments';
 import type { Env } from './types';
 
 type Variables = {
@@ -208,7 +209,8 @@ app.route('/api/comments', commentsRouter);
 app.route('/api/post-comments', postCommentsRouter);
 app.route('/api/analytics', analyticsRouter);
 app.route('/api/media', mediaRouter);
-app.route('/api/clans', clansRouter); // ADD THIS LINE - Mount clans router
+app.route('/api/clans', clansRouter);
+app.route('/api/payments', paymentsRouter);
 
 // 404 handler
 app.notFound((c) => {

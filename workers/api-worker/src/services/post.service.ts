@@ -191,44 +191,44 @@ export class PostService {
     return updatedPost;
   }
   
-  async deletePost(postId: string): Promise<void> {
-    // Get post details for cache invalidation
-    const post = await this.db.prepare(
-      'SELECT user_id FROM posts WHERE id = ?'
-    ).bind(postId).first();
-    
-    if (!post) {
-      throw new Error('Post not found');
-    }
-    
-    // Delete post and related data
-    await this.db.batch([
-      this.db.prepare('DELETE FROM posts WHERE id = ?').bind(postId),
-      this.db.prepare('DELETE FROM post_likes WHERE post_id = ?').bind(postId),
-      this.db.prepare('DELETE FROM post_comments WHERE post_id = ?').bind(postId),
-      this.db.prepare('DELETE FROM post_shares WHERE post_id = ?').bind(postId),
-      this.db.prepare('DELETE FROM post_bookmarks WHERE post_id = ?').bind(postId),
-      this.db.prepare(`
-        UPDATE users 
-        SET posts_count = GREATEST(0, posts_count - 1)
-        WHERE id = ?
-      `).bind(post.user_id)
-    ]);
-    
-    // Delete Durable Object counter
-    try {
-      const counterId = this.counters.idFromName(postId);
-      const counter = this.counters.get(counterId);
-      await counter.fetch(new Request('http://internal/delete', {
-        method: 'DELETE'
-      }));
-    } catch (error) {
-      console.error('Failed to delete counter:', error);
-    }
-    
-    // Invalidate caches
-    await this.invalidatePostCaches(postId, post.user_id as string);
+ async deletePost(postId: string): Promise<void> {
+  // Get post details for cache invalidation
+  const post = await this.db.prepare(
+    'SELECT user_id FROM posts WHERE id = ?'
+  ).bind(postId).first();
+  
+  if (!post) {
+    throw new Error('Post not found');
   }
+  
+  // Just delete the post - CASCADE will handle the rest
+  await this.db.prepare('DELETE FROM posts WHERE id = ?').bind(postId).run();
+  
+  // Update user post count
+  await this.db.prepare(`
+    UPDATE users 
+    SET posts_count = GREATEST(0, posts_count - 1)
+    WHERE id = ?
+  `).bind(post.user_id).run();
+  
+  // Try to delete Durable Object counter but don't fail if it errors
+  try {
+    const counterId = this.counters.idFromName(postId);
+    const counter = this.counters.get(counterId);
+    await counter.fetch(new Request('http://internal/delete', {
+      method: 'DELETE'
+    }));
+  } catch (error) {
+    console.error('Failed to delete counter (non-critical):', error);
+  }
+  
+  // Invalidate caches
+  try {
+    await this.invalidatePostCaches(postId, post.user_id as string);
+  } catch (error) {
+    console.error('Cache invalidation failed (non-critical):', error);
+  }
+}
   
   async getUserPosts(
     userId: string, 
