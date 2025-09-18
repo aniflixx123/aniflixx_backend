@@ -15,6 +15,7 @@ import { mediaRouter } from './routes/media';
 import { postCommentsRouter } from './routes/postComments';
 import { clansRouter } from './routes/clans';
 import { paymentsRouter } from './routes/payments';
+import { authRouter } from './routes/auth';
 import type { Env } from './types';
 
 type Variables = {
@@ -196,6 +197,7 @@ app.get('/api/clans/:id', async (c) => {
   }
 });
 
+app.route('/api/auth', authRouter);
 // Protected routes - require authentication
 app.use('/api/*', authMiddleware);
 
