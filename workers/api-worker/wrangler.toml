@@ -11,8 +11,6 @@ CLOUDFLARE_STREAM_CUSTOMER_CODE = "jvg1dxngjkn57j9y"
 STRIPE_PUBLISHABLE_KEY = "pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr"
 FRONTEND_URL = "https://aniflixx.com"
 SUPABASE_URL = "https://adgyxxbjzbhlkypxyilr.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkZ3l4eGJqemJobGt5cHh5aWxyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5ODU1NzEsImV4cCI6MjA3MzU2MTU3MX0.A5Wu9OF0nXuFieklmGf145y55JtsSr4reKSt88nGTBQ"
-SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkZ3l4eGJqemJobGt5cHh5aWxyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk4NTU3MSwiZXhwIjoyMDczNTYxNTcxfQ.TolL3w5auvzZ7D-vVY_Sfua3Zcx4OPa1QSsjMHby2_4"  # The service_role one (keep secret!)
 
 # Secrets - Set these via command line:
 # wrangler secret put CLOUDFLARE_ACCOUNT_ID
