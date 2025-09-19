@@ -198,6 +198,71 @@ app.get('/api/clans/:id', async (c) => {
 });
 
 app.route('/api/auth', authRouter);
+app.post('/api/payments/stripe-webhook', async (c) => {
+  try {
+    const signature = c.req.header('stripe-signature');
+    const body = await c.req.text();
+
+    if (!signature) {
+      console.error('Webhook: No signature provided');
+      return c.json({ error: 'No signature' }, 400);
+    }
+
+    // For now, parse without verification (add verification later)
+    const event = JSON.parse(body);
+    console.log(`Webhook: Processing ${event.type} event`);
+
+    // Import the webhook handlers directly
+    const { handleSubscriptionUpdate, handleSubscriptionDeleted, recordPayment } = await import('./routes/payments');
+
+    // Handle events
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        console.log('Checkout completed for:', session.metadata?.user_id);
+        break;
+      }
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        await handleSubscriptionUpdate(c.env.DB, subscription);
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        await handleSubscriptionDeleted(c.env.DB, subscription);
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        console.log('Payment succeeded for:', invoice.customer);
+        await recordPayment(c.env.DB, invoice, 'succeeded');
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        console.log('Payment failed for:', invoice.customer);
+        await recordPayment(c.env.DB, invoice, 'failed');
+        break;
+      }
+
+      default:
+        console.log(`Unhandled webhook event: ${event.type}`);
+    }
+
+    return c.json({ received: true });
+
+  } catch (error: any) {
+    console.error('Webhook error:', error);
+    return c.json({ 
+      error: 'Webhook processing failed' 
+    }, 500);
+  }
+});
 // Protected routes - require authentication
 app.use('/api/*', authMiddleware);
 

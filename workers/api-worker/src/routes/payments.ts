@@ -553,3 +553,4 @@ CREATE TABLE IF NOT EXISTS payment_history (
 `;
 
 export { router as paymentsRouter };
+export { handleSubscriptionUpdate, handleSubscriptionDeleted, recordPayment };
