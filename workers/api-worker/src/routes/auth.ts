@@ -470,34 +470,44 @@ authRouter.post('/reset-password', async (c) => {
 // POST /api/auth/refresh - Refresh token
 authRouter.post('/refresh', async (c) => {
   try {
-    const authHeader = c.req.header('Authorization');
+    const { refresh_token } = await c.req.json();
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!refresh_token) {
       return c.json({ 
         success: false, 
-        error: 'Missing authorization' 
+        error: 'Refresh token required' 
       }, 401);
     }
-
-    const oldToken = authHeader.substring(7);
     
-    // Refresh token with Supabase
+    // Refresh session with Supabase using the refresh token
     const supabase = getSupabaseClient(c.env);
-    const { data, error } = await supabase.auth.refreshSession({
-      refresh_token: oldToken
+    const { data, error }:any = await supabase.auth.refreshSession({
+      refresh_token: refresh_token
     });
 
     if (error || !data.session) {
+      console.error('Refresh error:', error);
       return c.json({ 
         success: false, 
         error: 'Failed to refresh token' 
       }, 401);
     }
 
+    // Get user from database
+    const dbUser = await c.env.DB.prepare(`
+      SELECT id, email, username, profile_image, bio, 
+             is_verified, followers_count, following_count, 
+             posts_count, flicks_count, created_at, updated_at,
+             stripe_customer_id
+      FROM users 
+      WHERE email = ?
+    `).bind(data.user.email!).first();
+
     return c.json({
       success: true,
       token: data.session.access_token,
-      refresh_token: data.session.refresh_token
+      refresh_token: data.session.refresh_token,
+      user: dbUser
     });
 
   } catch (error: any) {
