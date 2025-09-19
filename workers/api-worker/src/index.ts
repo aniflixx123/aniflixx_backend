@@ -16,6 +16,7 @@ import { postCommentsRouter } from './routes/postComments';
 import { clansRouter } from './routes/clans';
 import { paymentsRouter } from './routes/payments';
 import { authRouter } from './routes/auth';
+import { adsRouter } from './routes/ads';
 import type { Env } from './types';
 
 type Variables = {
@@ -219,6 +220,7 @@ app.route('/api/analytics', analyticsRouter);
 app.route('/api/media', mediaRouter);
 app.route('/api/clans', clansRouter);
 app.route('/api/payments', paymentsRouter);
+app.route('/api/ads', adsRouter);
 
 // 404 handler
 app.notFound((c) => {
