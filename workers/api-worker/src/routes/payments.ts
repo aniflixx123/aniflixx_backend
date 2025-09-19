@@ -92,25 +92,40 @@ router.get('/config', async (c) => {
     publishableKey: c.env.STRIPE_PUBLISHABLE_KEY || 'pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr',
     prices: {
       pro: {
-        usd: 'price_1S8FTDAoYPwNm8bkKDjYQWiL',
-        brl: 'price_1S8FTsAoYPwNm8bkwRNXZkUh',
-        inr: 'price_1S8FTXAoYPwNm8bkDEEWT73z'
+        // Americas
+        usd: 'price_1S8FTDAoYPwNm8bkKDjYQWiL',  // $4.99
+        cad: 'price_1S8ua7AoYPwNm8bk3eOiRbJF',  // C$6.49
+        mxn: 'price_1S8uaJAoYPwNm8bk6ar0bcHJ',  // $59
+        brl: 'price_1S8FTsAoYPwNm8bkwRNXZkUh',  // R$9.90
+        
+        // Europe
+        eur: 'price_1S8uZfAoYPwNm8bkYLSlQJU1',  // €3.99
+        gbp: 'price_1S8uZmAoYPwNm8bktzRXuI99',  // £3.49
+        
+        // Asia-Pacific
+        inr: 'price_1S8FTXAoYPwNm8bkDEEWT73z',  // ₹99
+        idr: 'price_1S8uXtAoYPwNm8bk2TGHigc4',  // Rp19,000
+        php: 'price_1S8uY3AoYPwNm8bkcJ506kPe',  // ₱99
+        thb: 'price_1S8uY9AoYPwNm8bkiC8C3NhK',  // ฿69
+        vnd: 'price_1S8uaWAoYPwNm8bkrt73rGwd',  // ₫49,000
+        myr: 'price_1S8uadAoYPwNm8bk7wts6fkT',  // RM9
+        sgd: 'price_1S8uawAoYPwNm8bkPPOORMcW',  // S$5.99
+        jpy: 'price_1S8uZuAoYPwNm8bkZkaZo7pZ',  // ¥500
+        aud: 'price_1S8ua0AoYPwNm8bkwvw7Gosp',  // A$6.99
       },
       max: {
-        usd: 'price_1S8FTKAoYPwNm8bkxHN5YvKh',
+        usd: 'price_1S8FTKAoYPwNm8bkxHN5YvKh',  // $7.99
         brl: 'price_1S8FTxAoYPwNm8bkjFbi1B82',
-        inr: 'price_1S8FTcAoYPwNm8bk3Wn5Qz7l'
+        inr: 'price_1S8FTcAoYPwNm8bk3Wn5Qz7l',
+        idr: 'price_1S8uYHAoYPwNm8bk3hI0ZtnZ',  // Rp29,000
+        php: 'price_1S8uZPAoYPwNm8bkXmhOTEIi',  // ₱149
+        thb: 'price_1S8uZZAoYPwNm8bkT2QisCnR',  // ฿99
       },
       creator_pro: {
-        usd: 'price_1S8FTQAoYPwNm8bkZjbYb42N',
+        usd: 'price_1S8FTQAoYPwNm8bkZjbYb42N',  // $12.99
         brl: 'price_1S8FU4AoYPwNm8bkODhjMn0a',
         inr: 'price_1S8FTiAoYPwNm8bkcsChLQHx'
       }
-    },
-    paymentLinks: {
-      pro: 'https://buy.stripe.com/6oUeVcceQ92A7Z70i9gUM00',
-      max: 'https://buy.stripe.com/6oUbJ0ceQbaIenvaWNgUM01',
-      creator_pro: 'https://buy.stripe.com/00w14ma6I92Acfn3ulgUM02'
     }
   });
 });
