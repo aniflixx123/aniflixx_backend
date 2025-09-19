@@ -198,121 +198,14 @@ app.get('/api/clans/:id', async (c) => {
 });
 
 app.route('/api/auth', authRouter);
-// Replace your current webhook handler with this:
-app.post('/api/payments/stripe-webhook', async (c) => {
-  try {
-    const signature = c.req.header('stripe-signature');
-    const body = await c.req.text();
-
-    if (!signature) {
-      console.error('Webhook: No signature provided');
-      return c.json({ error: 'No signature' }, 400);
-    }
-
-    const event = JSON.parse(body);
-    console.log(`Webhook: Processing ${event.type} event`);
-
-    // Import helper functions directly
-    const { nanoid } = await import('nanoid');
-    const db = c.env.DB;
-
-    // Handle events inline since we can't easily access the router's handlers
-    switch (event.type) {
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
-        const subscription = event.data.object;
-        
-        // Get user by Stripe customer ID
-        const user = await db.prepare(`
-          SELECT id FROM users WHERE stripe_customer_id = ?
-        `).bind(subscription.customer).first();
-
-        if (user) {
-          // Map product to plan
-          const productId = subscription.items.data[0]?.price.product;
-          const planMap: Record<string, string> = {
-            'prod_T4OFhO7IfIigBV': 'pro',
-            'prod_T4OFO4IYwaumrZ': 'max',
-            'prod_T4OFmnsdMa34lf': 'creator_pro'
-          };
-          const planId = planMap[productId] || 'pro';
-
-          // Update subscription record
-          await db.prepare(`
-            INSERT OR REPLACE INTO user_subscriptions (
-              id, user_id, stripe_subscription_id, stripe_customer_id,
-              plan_id, status, current_period_start, current_period_end,
-              cancel_at_period_end, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).bind(
-            nanoid(),
-            user.id,
-            subscription.id,
-            subscription.customer,
-            planId,
-            subscription.status,
-            new Date(subscription.current_period_start * 1000).toISOString(),
-            new Date(subscription.current_period_end * 1000).toISOString(),
-            subscription.cancel_at_period_end ? 1 : 0,
-            new Date().toISOString(),
-            new Date().toISOString()
-          ).run();
-
-          // Update user tier
-          await db.prepare(`
-            UPDATE users SET 
-              subscription_tier = ?,
-              is_premium = ?,
-              updated_at = ?
-            WHERE id = ?
-          `).bind(
-            planId,
-            subscription.status === 'active' ? 1 : 0,
-            new Date().toISOString(),
-            user.id
-          ).run();
-
-          console.log(`Subscription updated for user ${user.id}: ${planId}`);
-        }
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        const subscription = event.data.object;
-        
-        // Update user to free tier
-        const user = await db.prepare(`
-          SELECT id FROM users WHERE stripe_customer_id = ?
-        `).bind(subscription.customer).first();
-
-        if (user) {
-          await db.prepare(`
-            UPDATE users SET 
-              subscription_tier = 'free',
-              is_premium = 0,
-              updated_at = ?
-            WHERE id = ?
-          `).bind(
-            new Date().toISOString(),
-            user.id
-          ).run();
-        }
-        break;
-      }
-
-      default:
-        console.log(`Unhandled webhook event: ${event.type}`);
-    }
-
-    return c.json({ received: true });
-
-  } catch (error: any) {
-    console.error('Webhook error:', error);
-    return c.json({ error: 'Webhook processing failed' }, 500);
-  }
-});
 // Protected routes - require authentication
-app.use('/api/*', authMiddleware);
+app.use('/api/*', async (c, next) => {
+  // Skip auth for webhook endpoint
+  if (c.req.path === '/api/payments/stripe-webhook') {
+    return next();
+  }
+  return authMiddleware(c, next);
+});
 
 // Mount routers
 app.route('/api/posts', postsRouter);
