@@ -26,6 +26,14 @@ const createPortalSchema = z.object({
   returnUrl: z.string().url().optional(),
 });
 
+const updateSubscriptionSchema = z.object({
+  newPriceId: z.string(),
+});
+
+const cancelSubscriptionSchema = z.object({
+  reason: z.string().optional(),
+});
+
 // Helper function: Verify Stripe webhook signature
 async function verifyStripeSignature(
   body: string,
@@ -91,6 +99,7 @@ router.get('/config', async (c) => {
     success: true,
     publishableKey: c.env.STRIPE_PUBLISHABLE_KEY || 'pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr',
     prices: {
+      // Monthly prices
       pro: {
         // Americas
         usd: 'price_1S8FTDAoYPwNm8bkKDjYQWiL',  // $4.99
@@ -125,6 +134,16 @@ router.get('/config', async (c) => {
         usd: 'price_1S8FTQAoYPwNm8bkZjbYb42N',  // $12.99
         brl: 'price_1S8FU4AoYPwNm8bkODhjMn0a',
         inr: 'price_1S8FTiAoYPwNm8bkcsChLQHx'
+      },
+      // Yearly prices
+      pro_yearly: {
+        usd: 'price_1S97lcAoYPwNm8bk8KqmQJDB',  // $49.90/year
+      },
+      max_yearly: {
+        usd: 'price_1S97loAoYPwNm8bkKUF5doij',  // $99.90/year
+      },
+      creator_pro_yearly: {
+        usd: 'price_1S97lvAoYPwNm8bkLsFBsvHL',  // $199.90/year
       }
     }
   });
@@ -246,6 +265,278 @@ router.post('/create-checkout', async (c) => {
   }
 });
 
+// UPDATE SUBSCRIPTION (Change Plan) - NEW ENDPOINT
+router.post('/subscription/update', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+
+    const body = await c.req.json();
+    const validated = validateRequest(updateSubscriptionSchema, body);
+
+    if (!validated.success) {
+      return c.json({ 
+        success: false, 
+        error: 'Invalid request',
+        details: validated.errors
+      }, 400);
+    }
+
+    // Get current subscription with item ID
+    const currentSub = await c.env.DB.prepare(`
+      SELECT 
+        us.*,
+        u.stripe_customer_id
+      FROM user_subscriptions us
+      JOIN users u ON us.user_id = u.id
+      WHERE us.user_id = ? 
+        AND us.status IN ('active', 'trialing')
+      ORDER BY us.created_at DESC
+      LIMIT 1
+    `).bind(user.id).first() as any;
+
+    if (!currentSub) {
+      return c.json({ 
+        success: false, 
+        error: 'No active subscription found' 
+      }, 404);
+    }
+
+    // Get subscription item ID from Stripe if we don't have it stored
+    if (!currentSub.stripe_subscription_item_id) {
+      const subResponse = await fetch(
+        `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+          }
+        }
+      );
+
+      if (!subResponse.ok) {
+        throw new Error('Failed to fetch subscription details');
+      }
+
+      const subscription:any = await subResponse.json();
+      currentSub.stripe_subscription_item_id = subscription.items.data[0]?.id;
+
+      // Store for future use
+      if (currentSub.stripe_subscription_item_id) {
+        await c.env.DB.prepare(`
+          UPDATE user_subscriptions 
+          SET stripe_subscription_item_id = ?
+          WHERE id = ?
+        `).bind(currentSub.stripe_subscription_item_id, currentSub.id).run();
+      }
+    }
+
+    // Update subscription via Stripe API
+    const updateData = new URLSearchParams();
+    updateData.append('items[0][id]', currentSub.stripe_subscription_item_id);
+    updateData.append('items[0][price]', validated.data.newPriceId);
+    updateData.append('proration_behavior', 'create_prorations');
+    updateData.append('payment_behavior', 'pending_if_incomplete');
+
+    const response = await fetch(
+      `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: updateData.toString()
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Stripe subscription update failed:', error);
+      throw new Error('Failed to update subscription');
+    }
+
+    const updatedSubscription = await response.json();
+
+    return c.json({
+      success: true,
+      data: {
+        subscription: updatedSubscription,
+        message: 'Subscription update initiated. Changes will be reflected shortly.'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Update subscription error:', error);
+    return c.json({ 
+      success: false, 
+      error: error.message || 'Failed to update subscription' 
+    }, 500);
+  }
+});
+
+// CANCEL SUBSCRIPTION - NEW ENDPOINT
+router.post('/subscription/cancel', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+
+    const body = await c.req.json();
+    const validated :any= validateRequest(cancelSubscriptionSchema, body);
+
+    // Get current subscription
+    const currentSub = await c.env.DB.prepare(`
+      SELECT stripe_subscription_id
+      FROM user_subscriptions
+      WHERE user_id = ? 
+        AND status IN ('active', 'trialing')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).bind(user.id).first() as any;
+
+    if (!currentSub) {
+      return c.json({ 
+        success: false, 
+        error: 'No active subscription found' 
+      }, 404);
+    }
+
+    // Cancel at period end via Stripe API
+    const cancelData = new URLSearchParams();
+    cancelData.append('cancel_at_period_end', 'true');
+    
+    // Add cancellation reason if provided
+    if (validated.data?.reason) {
+      cancelData.append('cancellation_details[comment]', validated.data.reason);
+    }
+
+    const response = await fetch(
+      `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: cancelData.toString()
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Stripe cancellation failed:', error);
+      throw new Error('Failed to cancel subscription');
+    }
+
+    const canceledSubscription:any = await response.json();
+
+    // Update local database
+    await c.env.DB.prepare(`
+      UPDATE user_subscriptions
+      SET cancel_at_period_end = 1,
+          updated_at = ?
+      WHERE stripe_subscription_id = ?
+    `).bind(
+      new Date().toISOString(),
+      currentSub.stripe_subscription_id
+    ).run();
+
+    return c.json({
+      success: true,
+      data: {
+        message: 'Subscription will be canceled at the end of the current billing period',
+        endsAt: new Date(canceledSubscription.current_period_end * 1000).toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Cancel subscription error:', error);
+    return c.json({ 
+      success: false, 
+      error: error.message || 'Failed to cancel subscription' 
+    }, 500);
+  }
+});
+
+// REACTIVATE SUBSCRIPTION - NEW ENDPOINT
+router.post('/subscription/reactivate', async (c) => {
+  try {
+    const user = c.get('user');
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+
+    // Get subscription pending cancellation
+    const currentSub = await c.env.DB.prepare(`
+      SELECT stripe_subscription_id
+      FROM user_subscriptions
+      WHERE user_id = ? 
+        AND status = 'active'
+        AND cancel_at_period_end = 1
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).bind(user.id).first() as any;
+
+    if (!currentSub) {
+      return c.json({ 
+        success: false, 
+        error: 'No subscription pending cancellation found' 
+      }, 404);
+    }
+
+    // Reactivate via Stripe API
+    const reactivateData = new URLSearchParams();
+    reactivateData.append('cancel_at_period_end', 'false');
+
+    const response = await fetch(
+      `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: reactivateData.toString()
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Stripe reactivation failed:', error);
+      throw new Error('Failed to reactivate subscription');
+    }
+
+    // Update local database
+    await c.env.DB.prepare(`
+      UPDATE user_subscriptions
+      SET cancel_at_period_end = 0,
+          updated_at = ?
+      WHERE stripe_subscription_id = ?
+    `).bind(
+      new Date().toISOString(),
+      currentSub.stripe_subscription_id
+    ).run();
+
+    return c.json({
+      success: true,
+      data: {
+        message: 'Subscription has been reactivated successfully'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Reactivate subscription error:', error);
+    return c.json({ 
+      success: false, 
+      error: error.message || 'Failed to reactivate subscription' 
+    }, 500);
+  }
+});
+
 // Get subscription status
 router.get('/subscription-status', async (c) => {
   try {
@@ -261,7 +552,8 @@ router.get('/subscription-status', async (c) => {
         sp.name as plan_name,
         sp.features,
         sp.price,
-        sp.currency
+        sp.currency,
+        sp.billing_interval
       FROM user_subscriptions us
       LEFT JOIN subscription_plans sp ON us.plan_id = sp.id
       WHERE us.user_id = ? 
@@ -280,18 +572,24 @@ router.get('/subscription-status', async (c) => {
       });
     }
 
+    // Extract base tier (remove _yearly suffix)
+    const baseTier = subscription.plan_id.replace('_yearly', '');
+
     return c.json({
       success: true,
       data: {
         hasSubscription: true,
-        tier: subscription.plan_id,
+        tier: baseTier,
         plan: {
           id: subscription.plan_id,
           name: subscription.plan_name,
           features: subscription.features ? JSON.parse(subscription.features as string) : [],
           status: subscription.status,
+          billingInterval: subscription.billing_interval,
           currentPeriodEnd: subscription.current_period_end,
-          cancelAtPeriodEnd: subscription.cancel_at_period_end
+          cancelAtPeriodEnd: subscription.cancel_at_period_end === 1,
+          price: subscription.price,
+          currency: subscription.currency
         }
       }
     });
@@ -456,7 +754,7 @@ router.post('/stripe-webhook', async (c) => {
   }
 });
 
-// Helper function: Update subscription
+// Helper function: Update subscription (UPDATED WITH YEARLY SUPPORT)
 async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
   try {
     // Get user by Stripe customer ID
@@ -469,14 +767,37 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       return;
     }
 
-    // Map product to plan
-    const productId = subscription.items.data[0]?.price.product;
-    const planMap: Record<string, string> = {
-      'prod_T4OFhO7IfIigBV': 'pro',
-      'prod_T4OFO4IYwaumrZ': 'max',
-      'prod_T4OFmnsdMa34lf': 'creator_pro'
+    // Get price ID and subscription item ID
+    const priceId = subscription.items.data[0]?.price.id;
+    const subscriptionItemId = subscription.items.data[0]?.id;
+    
+    // Enhanced mapping with both monthly and yearly plans using price IDs
+    const priceToPlaneMap: Record<string, string> = {
+      // Monthly plans
+      'price_1S8FTDAoYPwNm8bkKDjYQWiL': 'pro',
+      'price_1S8FTKAoYPwNm8bkxHN5YvKh': 'max',
+      'price_1S8FTQAoYPwNm8bkZjbYb42N': 'creator_pro',
+      
+      // Yearly plans
+      'price_1S97lcAoYPwNm8bk8KqmQJDB': 'pro_yearly',
+      'price_1S97loAoYPwNm8bkKUF5doij': 'max_yearly',
+      'price_1S97lvAoYPwNm8bkLsFBsvHL': 'creator_pro_yearly',
     };
-    const planId = planMap[productId] || 'pro';
+    
+    const planId = priceToPlaneMap[priceId];
+    
+    if (!planId) {
+      console.error(`Unknown price ID: ${priceId}`);
+      // Fallback to product-based mapping for backward compatibility
+      const productId = subscription.items.data[0]?.price.product;
+      const productMap: Record<string, string> = {
+        'prod_T4OFhO7IfIigBV': 'pro',
+        'prod_T4OFO4IYwaumrZ': 'max',
+        'prod_T4OFmnsdMa34lf': 'creator_pro'
+      };
+      const fallbackPlanId = productMap[productId] || 'pro';
+      console.log(`Using fallback plan ID: ${fallbackPlanId}`);
+    }
 
     // Check if subscription exists
     const existing = await db.prepare(`
@@ -487,14 +808,18 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       // Update existing
       await db.prepare(`
         UPDATE user_subscriptions SET
+          plan_id = ?,
           status = ?,
+          stripe_subscription_item_id = ?,
           current_period_start = ?,
           current_period_end = ?,
           cancel_at_period_end = ?,
           updated_at = ?
         WHERE stripe_subscription_id = ?
       `).bind(
+        planId || 'pro',
         subscription.status,
+        subscriptionItemId,
         new Date(subscription.current_period_start * 1000).toISOString(),
         new Date(subscription.current_period_end * 1000).toISOString(),
         subscription.cancel_at_period_end ? 1 : 0,
@@ -505,16 +830,18 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       // Create new
       await db.prepare(`
         INSERT INTO user_subscriptions (
-          id, user_id, stripe_subscription_id, stripe_customer_id,
-          plan_id, status, current_period_start, current_period_end,
+          id, user_id, stripe_subscription_id, stripe_subscription_item_id,
+          stripe_customer_id, plan_id, status, 
+          current_period_start, current_period_end,
           cancel_at_period_end, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         nanoid(),
         user.id,
         subscription.id,
+        subscriptionItemId,
         subscription.customer,
-        planId,
+        planId || 'pro',
         subscription.status,
         new Date(subscription.current_period_start * 1000).toISOString(),
         new Date(subscription.current_period_end * 1000).toISOString(),
@@ -524,6 +851,9 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       ).run();
     }
 
+    // Extract base tier (remove _yearly suffix for user tier)
+    const tier = (planId || 'pro').replace('_yearly', '');
+
     // Update user tier
     await db.prepare(`
       UPDATE users SET 
@@ -532,7 +862,7 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
         updated_at = ?
       WHERE id = ?
     `).bind(
-      planId,
+      tier,
       subscription.status === 'active' ? 1 : 0,
       new Date().toISOString(),
       user.id
