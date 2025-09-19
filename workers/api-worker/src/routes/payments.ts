@@ -311,7 +311,12 @@ router.post('/stripe-webhook', async (c) => {
     }
 
     // For now, parse without verification (add verification later)
-    const event = JSON.parse(body);
+    const stripe = require('stripe')(c.env.STRIPE_SECRET_KEY);
+const event = stripe.webhooks.constructEvent(
+  body,
+  signature,
+  c.env.STRIPE_WEBHOOK_SECRET
+);
     console.log(`Webhook: Processing ${event.type} event`);
 
     // Handle events
