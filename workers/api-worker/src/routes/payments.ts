@@ -26,6 +26,65 @@ const createPortalSchema = z.object({
   returnUrl: z.string().url().optional(),
 });
 
+// Helper function: Verify Stripe webhook signature
+async function verifyStripeSignature(
+  body: string,
+  signature: string,
+  secret: string
+): Promise<boolean> {
+  try {
+    // Parse the signature header
+    const elements = signature.split(',');
+    const timestamp = elements.find(e => e.startsWith('t='))?.substring(2);
+    const signatures = elements
+      .filter(e => e.startsWith('v1='))
+      .map(e => e.substring(3));
+
+    if (!timestamp || signatures.length === 0) {
+      console.error('Invalid signature format');
+      return false;
+    }
+
+    // Check timestamp to prevent replay attacks (5 minute tolerance)
+    const currentTime = Math.floor(Date.now() / 1000);
+    if (currentTime - parseInt(timestamp) > 300) {
+      console.error('Webhook timestamp too old');
+      return false;
+    }
+
+    // Compute expected signature using Web Crypto API (Cloudflare Workers compatible)
+    const encoder = new TextEncoder();
+    const signedPayload = `${timestamp}.${body}`;
+    
+    // Import the secret as a key
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    // Sign the payload
+    const signatureBuffer = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(signedPayload)
+    );
+
+    // Convert to hex
+    const expectedSig = Array.from(new Uint8Array(signatureBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Verify at least one signature matches
+    return signatures.some(sig => sig === expectedSig);
+  } catch (error) {
+    console.error('Error verifying signature:', error);
+    return false;
+  }
+}
+
 // Public endpoint - Get Stripe config
 router.get('/config', async (c) => {
   return c.json({
@@ -127,8 +186,8 @@ router.post('/create-checkout', async (c) => {
 
     // Create checkout session
     const sessionData = new URLSearchParams();
-    sessionData.append('success_url', validated.data.successUrl || `${c.env.FRONTEND_URL || 'https://aniflixx-api.black-poetry-4fa5.workers.dev'}/subscription/success?session_id={CHECKOUT_SESSION_ID}`);
-    sessionData.append('cancel_url', validated.data.cancelUrl || `${c.env.FRONTEND_URL || 'https://aniflixx-api.black-poetry-4fa5.workers.dev'}/subscription/plans`);
+    sessionData.append('success_url', validated.data.successUrl || `${c.env.FRONTEND_URL}/subscription/success?session_id={CHECKOUT_SESSION_ID}`);
+    sessionData.append('cancel_url', validated.data.cancelUrl || `${c.env.FRONTEND_URL}/subscription/plans`);
     sessionData.append('payment_method_types[0]', 'card');
     sessionData.append('mode', 'subscription');
     sessionData.append('customer', userData.stripe_customer_id);
@@ -249,7 +308,7 @@ router.post('/create-portal', async (c) => {
       }, 400);
     }
 
-    const returnUrl = validated.data.returnUrl || `${c.env.FRONTEND_URL || 'https://aniflixx-api.black-poetry-4fa5.workers.dev'}/account`;
+    const returnUrl = validated.data.returnUrl || `${c.env.FRONTEND_URL}/account`;
 
     // Get user's Stripe customer ID
     const userData = await c.env.DB.prepare(`
@@ -310,13 +369,25 @@ router.post('/stripe-webhook', async (c) => {
       return c.json({ error: 'No signature' }, 400);
     }
 
-    // For now, parse without verification (add verification later)
-    const stripe = require('stripe')(c.env.STRIPE_SECRET_KEY);
-const event = stripe.webhooks.constructEvent(
-  body,
-  signature,
-  c.env.STRIPE_WEBHOOK_SECRET
-);
+    // Verify webhook signature
+    if (!c.env.STRIPE_WEBHOOK_SECRET) {
+      console.error('Webhook: STRIPE_WEBHOOK_SECRET not configured');
+      return c.json({ error: 'Webhook secret not configured' }, 500);
+    }
+
+    const isValid = await verifyStripeSignature(
+      body,
+      signature,
+      c.env.STRIPE_WEBHOOK_SECRET
+    );
+
+    if (!isValid) {
+      console.error('Webhook: Invalid signature');
+      return c.json({ error: 'Invalid signature' }, 400);
+    }
+
+    // Parse the verified event
+    const event = JSON.parse(body);
     console.log(`Webhook: Processing ${event.type} event`);
 
     // Handle events
@@ -538,23 +609,5 @@ async function recordPayment(db: D1Database, invoice: any, status: string) {
     console.error('Error recording payment:', error);
   }
 }
-
-// Add payment history table creation to your migration
-const paymentHistorySchema = `
-CREATE TABLE IF NOT EXISTS payment_history (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  stripe_invoice_id TEXT UNIQUE,
-  stripe_payment_intent_id TEXT,
-  amount INTEGER NOT NULL,
-  currency TEXT NOT NULL,
-  status TEXT NOT NULL,
-  failure_reason TEXT,
-  refund_amount INTEGER DEFAULT 0,
-  refund_reason TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-`;
 
 export { router as paymentsRouter };
