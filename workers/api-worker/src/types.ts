@@ -29,6 +29,11 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_KEY: string;
+
+  ADMOB_NATIVE_AD_UNIT_IOS: string;
+  ADMOB_NATIVE_AD_UNIT_ANDROID: string;
+  AD_ENABLED: string;
+  AD_DEFAULT_FREQUENCY: string;
 }
 
 export interface AuthUser {

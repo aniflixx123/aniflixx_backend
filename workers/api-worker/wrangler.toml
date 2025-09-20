@@ -11,6 +11,11 @@ CLOUDFLARE_STREAM_CUSTOMER_CODE = "jvg1dxngjkn57j9y"
 STRIPE_PUBLISHABLE_KEY = "pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr"
 FRONTEND_URL = "https://aniflixx.com"
 SUPABASE_URL = "https://adgyxxbjzbhlkypxyilr.supabase.co"
+ADMOB_NATIVE_AD_UNIT_IOS = "ca-app-pub-2967300488956409/9397370024"
+ADMOB_NATIVE_AD_UNIT_ANDROID = "ca-app-pub-2967300488956409/9397370024"
+AD_ENABLED = "true"
+AD_DEFAULT_FREQUENCY = "10"
+
 
 # Secrets - Set these via command line:
 # wrangler secret put CLOUDFLARE_ACCOUNT_ID

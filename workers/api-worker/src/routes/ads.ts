@@ -132,20 +132,39 @@ adsRouter.get('/config', async (c) => {
   const service = new AdsService(c.env.DB, c.env.CACHE);
   
   try {
-    const config = await service.getAdConfig();
+    // Get user preferences and config
     const userPrefs = await service.getUserAdPreferences(user.id);
     
-    // Check if user is in test group
-    const isTestUser = user.id.charCodeAt(0) % 10 < 1; // 10% test group
+    // Check if user is in test group (10% of users for A/B testing)
+    const isTestUser = user.id.charCodeAt(0) % 10 < 1;
+    
+    // Determine platform from user agent or header
+    const userAgent = c.req.header('User-Agent') || '';
+    const platformHeader = c.req.header('X-Device-Platform');
+    const isIOS = platformHeader === 'ios' || userAgent.includes('iPhone') || userAgent.includes('iPad');
+    
+    // Use production ad unit IDs from environment
+    const nativeAdUnitId = isIOS 
+      ? c.env.ADMOB_NATIVE_AD_UNIT_IOS 
+      : c.env.ADMOB_NATIVE_AD_UNIT_ANDROID;
+    
+    // Check if ads should be enabled
+    const adsEnabled = c.env.AD_ENABLED === 'true' && !userPrefs?.optOut;
+    
+    // Get frequency (user preference or default)
+    const frequency = userPrefs?.frequencyPreference 
+      ? (userPrefs.frequencyPreference === 'minimal' ? 20 : 
+         userPrefs.frequencyPreference === 'maximum' ? 7 : 10)
+      : parseInt(c.env.AD_DEFAULT_FREQUENCY || '10');
     
     return c.json({
       success: true,
       data: {
-        enabled: userPrefs?.optOut ? false : (config?.enabled ?? false),
-        frequency: await service.getAdFrequency(user.id),
+        enabled: adsEnabled,
+        frequency: frequency,
         adUnitIds: {
-          native: config?.nativeAdUnitId,
-          interstitial: config?.interstitialAdUnitId
+          native: nativeAdUnitId,
+          interstitial: null // No interstitials in production
         },
         isTestUser,
         userSegment: userPrefs ? 'returning' : 'new'
@@ -153,7 +172,18 @@ adsRouter.get('/config', async (c) => {
     });
   } catch (error) {
     console.error('Get config error:', error);
-    return c.json({ success: false, error: 'Failed to get config' }, 500);
+    return c.json({ 
+      success: false, 
+      error: 'Failed to get config',
+      // Fallback configuration for production resilience
+      data: {
+        enabled: false,
+        frequency: 15,
+        adUnitIds: { native: null, interstitial: null },
+        isTestUser: false,
+        userSegment: 'new'
+      }
+    }, 500);
   }
 });
 
