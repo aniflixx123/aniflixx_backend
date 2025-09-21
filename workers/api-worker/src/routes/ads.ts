@@ -62,6 +62,20 @@ adsRouter.post('/interaction', async (c) => {
   }
 });
 
+// Get user ad stats
+adsRouter.get('/stats', async (c) => {
+  const user = c.get('user');
+  const service = new AdsService(c.env.DB, c.env.CACHE);
+  
+  try {
+    const stats = await service.getUserAdStats(user.id);
+    return c.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    return c.json({ success: false, error: 'Failed to get stats' }, 500);
+  }
+});
+
 // Get user ad preferences
 adsRouter.get('/preferences', async (c) => {
   const user = c.get('user');
@@ -99,8 +113,8 @@ adsRouter.put('/preferences', async (c) => {
     
     await c.env.DB.prepare(`
       INSERT INTO user_ad_preferences (
-        user_id, frequency_preference, categories_blocked, opt_out
-      ) VALUES (?, ?, ?, ?)
+        user_id, frequency_preference, categories_blocked, opt_out, updated_at
+      ) VALUES (?, ?, ?, ?, datetime('now'))
       ON CONFLICT(user_id) DO UPDATE SET
         frequency_preference = ?,
         categories_blocked = ?,
@@ -108,10 +122,10 @@ adsRouter.put('/preferences', async (c) => {
         updated_at = datetime('now')
     `).bind(
       user.id,
-      frequencyPreference,
+      frequencyPreference || 'normal',
       JSON.stringify(categoriesBlocked || []),
       optOut ? 1 : 0,
-      frequencyPreference,
+      frequencyPreference || 'normal',
       JSON.stringify(categoriesBlocked || []),
       optOut ? 1 : 0
     ).run();
@@ -132,30 +146,23 @@ adsRouter.get('/config', async (c) => {
   const service = new AdsService(c.env.DB, c.env.CACHE);
   
   try {
-    // Get user preferences and config
+    // Get base configuration from database
+    const config = await service.getAdConfig();
+    
+    // Get user preferences
     const userPrefs = await service.getUserAdPreferences(user.id);
+    
+    // Calculate effective frequency
+    const frequency = await service.getAdFrequency(user.id);
     
     // Check if user is in test group (10% of users for A/B testing)
     const isTestUser = user.id.charCodeAt(0) % 10 < 1;
     
-    // Determine platform from user agent or header
-    const userAgent = c.req.header('User-Agent') || '';
-    const platformHeader = c.req.header('X-Device-Platform');
-    const isIOS = platformHeader === 'ios' || userAgent.includes('iPhone') || userAgent.includes('iPad');
+    // Determine if ads should be enabled
+    const adsEnabled = config?.enabled && !userPrefs?.optOut;
     
-    // Use production ad unit IDs from environment
-    const nativeAdUnitId = isIOS 
-      ? c.env.ADMOB_NATIVE_AD_UNIT_IOS 
-      : c.env.ADMOB_NATIVE_AD_UNIT_ANDROID;
-    
-    // Check if ads should be enabled
-    const adsEnabled = c.env.AD_ENABLED === 'true' && !userPrefs?.optOut;
-    
-    // Get frequency (user preference or default)
-    const frequency = userPrefs?.frequencyPreference 
-      ? (userPrefs.frequencyPreference === 'minimal' ? 20 : 
-         userPrefs.frequencyPreference === 'maximum' ? 7 : 10)
-      : parseInt(c.env.AD_DEFAULT_FREQUENCY || '10');
+    // Get ad unit ID from config
+    const nativeAdUnitId = config?.nativeAdUnitId || null;
     
     return c.json({
       success: true,
@@ -164,26 +171,38 @@ adsRouter.get('/config', async (c) => {
         frequency: frequency,
         adUnitIds: {
           native: nativeAdUnitId,
-          interstitial: null // No interstitials in production
+          interstitial: null // Not using interstitials
         },
         isTestUser,
-        userSegment: userPrefs ? 'returning' : 'new'
+        userSegment: userPrefs ? 'returning' : 'new',
+        config: {
+          maxAdsPerSession: config?.maxAdsPerSession || 10,
+          minTimeBetweenAds: config?.minTimeBetweenAds || 120,
+          newUserGracePeriod: config?.newUserGracePeriod || 15
+        }
       }
     });
   } catch (error) {
     console.error('Get config error:', error);
+    // Return fallback configuration to prevent app crashes
     return c.json({ 
-      success: false, 
-      error: 'Failed to get config',
-      // Fallback configuration for production resilience
+      success: true,
       data: {
         enabled: false,
         frequency: 15,
-        adUnitIds: { native: null, interstitial: null },
+        adUnitIds: { 
+          native: null, 
+          interstitial: null 
+        },
         isTestUser: false,
-        userSegment: 'new'
+        userSegment: 'new',
+        config: {
+          maxAdsPerSession: 10,
+          minTimeBetweenAds: 120,
+          newUserGracePeriod: 15
+        }
       }
-    }, 500);
+    });
   }
 });
 
