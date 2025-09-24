@@ -200,6 +200,7 @@ app.get('/api/clans/:id', async (c) => {
 
 app.route('/api/auth', authRouter);
 // Protected routes - require authentication
+app.route('/api/payments', paymentsRouter);
 app.use('/api/*', async (c, next) => {
   // Skip auth for webhook endpoint
   if (c.req.path === '/api/payments/stripe-webhook') {
@@ -219,7 +220,6 @@ app.route('/api/post-comments', postCommentsRouter);
 app.route('/api/analytics', analyticsRouter);
 app.route('/api/media', mediaRouter);
 app.route('/api/clans', clansRouter);
-app.route('/api/payments', paymentsRouter);
 app.route('/api/ads', adsRouter);
 
 // 404 handler

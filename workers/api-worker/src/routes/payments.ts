@@ -93,130 +93,117 @@ async function verifyStripeSignature(
   }
 }
 
-// Public endpoint - Get Stripe config with UPDATED PRICE IDs
+// Public endpoint - Get Stripe config with AMOUNTS
 router.get('/config', async (c) => {
   return c.json({
     success: true,
     publishableKey: c.env.STRIPE_PUBLISHABLE_KEY || 'pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr',
     prices: {
-      // Monthly prices - UPDATED with your actual price IDs from Stripe
+      // Monthly prices with amounts
       pro: {
-        // Americas
-        usd: 'price_1S97lcAoYPwNm8bk8KqmQJDB',  // $4.90 UPDATED
-        cad: 'price_1SApaKAoYPwNm8bkUbHXXDrq',  // CAD 6.468
-        mxn: 'price_1SApaTAoYPwNm8bk6ObaYjKJ',  // MXN 58.836
-        brl: 'price_1SApaiAoYPwNm8bkVcfMHjPr',  // BRL 9.870
-        
-        // Europe  
-        eur: 'price_1SApaxAoYPwNm8bkO8922DQs',  // EUR 3.978
-        gbp: 'price_1SApbBAoYPwNm8bkVeVPV7h8',  // GBP 3.481
-        
-        // Asia-Pacific
-        inr: 'price_1SApbPAoYPwNm8bkplxL8pWk',  // INR 987.012
-        idr: 'price_1SApbhAoYPwNm8bkrDRI7rHT',  // IDR 18,948,000
-        php: 'price_1SApc1AoYPwNm8bk4whd7CbS',  // PHP 987.012
-        thb: 'price_1SApcEAoYPwNm8bkgUchdii0',  // THB 687.948
-        vnd: 'price_1SApcbAoYPwNm8bk4qZrqk1I',  // VND 48,855,600
-        myr: 'price_1SApcpAoYPwNm8bkwq4n37Ji',  // MYR 89.748
-        sgd: 'price_1SApdGAoYPwNm8bkdHfg2sKo',  // SGD 59.700
-        jpy: 'price_1SApdXAoYPwNm8bkRvZ1EcRy',  // JPY 498
-        aud: 'price_1SApdzAoYPwNm8bkHhtJH3Ph',  // AUD 69.700
+        usd: { priceId: 'price_1S97lcAoYPwNm8bk8KqmQJDB', amount: '4.90', currency: 'usd' },
+        cad: { priceId: 'price_1SApaKAoYPwNm8bkUbHXXDrq', amount: '6.47', currency: 'cad' },
+        mxn: { priceId: 'price_1SApaTAoYPwNm8bk6ObaYjKJ', amount: '98.84', currency: 'mxn' },
+        brl: { priceId: 'price_1SApaiAoYPwNm8bkVcfMHjPr', amount: '28.70', currency: 'brl' },
+        eur: { priceId: 'price_1SApaxAoYPwNm8bkO8922DQs', amount: '4.48', currency: 'eur' },
+        gbp: { priceId: 'price_1SApbBAoYPwNm8bkVeVPV7h8', amount: '3.88', currency: 'gbp' },
+        inr: { priceId: 'price_1SApbPAoYPwNm8bkplxL8pWk', amount: '410', currency: 'inr' },
+        idr: { priceId: 'price_1SApbhAoYPwNm8bkrDRI7rHT', amount: '77000', currency: 'idr' },
+        php: { priceId: 'price_1SApc1AoYPwNm8bk4whd7CbS', amount: '280', currency: 'php' },
+        thb: { priceId: 'price_1SApcEAoYPwNm8bkgUchdii0', amount: '169', currency: 'thb' },
+        vnd: { priceId: 'price_1SApcbAoYPwNm8bk4qZrqk1I', amount: '124000', currency: 'vnd' },
+        myr: { priceId: 'price_1SApcpAoYPwNm8bkwq4n37Ji', amount: '21.90', currency: 'myr' },
+        sgd: { priceId: 'price_1SApdGAoYPwNm8bkdHfg2sKo', amount: '6.60', currency: 'sgd' },
+        jpy: { priceId: 'price_1SApdXAoYPwNm8bkRvZ1EcRy', amount: '750', currency: 'jpy' },
+        aud: { priceId: 'price_1SApdzAoYPwNm8bkHhtJH3Ph', amount: '7.60', currency: 'aud' },
       },
       max: {
-        // Americas
-        usd: 'price_1SApkaAoYPwNm8bkAPD57Kto',  // $7.90 (from AUD yearly /12) UPDATED
-        cad: 'price_1SApjPAoYPwNm8bkJpnDEJOT',  // CAD yearly/12
-        mxn: 'price_1SApjCAoYPwNm8bkcw8K9lF5',  // MXN yearly/12
-        brl: 'price_1SApj5AoYPwNm8bkgA0yaBY8',  // BRL yearly/12
-        
-        // Europe
-        eur: 'price_1SApioAoYPwNm8bkE2xNJJCk',  // EUR yearly/12
-        gbp: 'price_1SApieAoYPwNm8bkJdVaWvJL',  // GBP yearly/12
-        
-        // Asia-Pacific
-        inr: 'price_1SApiTAoYPwNm8bkyRbtKVz6',  // INR yearly/12
-        idr: 'price_1SApiIAoYPwNm8bkXz1gGzgV',  // IDR yearly/12
-        php: 'price_1SAphyAoYPwNm8bkNc8JYN6s',  // PHP yearly/12
-        thb: 'price_1SAphoAoYPwNm8bkqBQxG5Tr',  // THB yearly/12
-        vnd: 'price_1SApiSAoYPwNm8bkBwTalb5y',  // VND yearly/12
-        myr: 'price_1SApiiAoYPwNm8bkWRS50Yzd',  // MYR yearly/12
-        sgd: 'price_1SApj0AoYPwNm8bkI5FVpl1q',  // SGD yearly/12
-        jpy: 'price_1SApk8AoYPwNm8bkierV3tQe',  // JPY yearly/12
-        aud: 'price_1SApkaAoYPwNm8bkAPD57Kto',  // AUD 111.54/year
+        // MAX Monthly prices
+        usd: { priceId: 'price_MAX_MONTHLY_USD', amount: '7.90', currency: 'usd' },
+        cad: { priceId: 'price_MAX_MONTHLY_CAD', amount: '10.35', currency: 'cad' },
+        mxn: { priceId: 'price_MAX_MONTHLY_MXN', amount: '158', currency: 'mxn' },
+        brl: { priceId: 'price_MAX_MONTHLY_BRL', amount: '45.90', currency: 'brl' },
+        eur: { priceId: 'price_MAX_MONTHLY_EUR', amount: '7.17', currency: 'eur' },
+        gbp: { priceId: 'price_MAX_MONTHLY_GBP', amount: '6.21', currency: 'gbp' },
+        inr: { priceId: 'price_MAX_MONTHLY_INR', amount: '656', currency: 'inr' },
+        idr: { priceId: 'price_MAX_MONTHLY_IDR', amount: '123000', currency: 'idr' },
+        php: { priceId: 'price_MAX_MONTHLY_PHP', amount: '448', currency: 'php' },
+        thb: { priceId: 'price_MAX_MONTHLY_THB', amount: '270', currency: 'thb' },
+        vnd: { priceId: 'price_MAX_MONTHLY_VND', amount: '198000', currency: 'vnd' },
+        myr: { priceId: 'price_MAX_MONTHLY_MYR', amount: '35', currency: 'myr' },
+        sgd: { priceId: 'price_MAX_MONTHLY_SGD', amount: '10.56', currency: 'sgd' },
+        jpy: { priceId: 'price_MAX_MONTHLY_JPY', amount: '1200', currency: 'jpy' },
+        aud: { priceId: 'price_MAX_MONTHLY_AUD', amount: '12.16', currency: 'aud' },
       },
       creator_pro: {
-        // Americas
-        usd: 'price_1SAplBAoYPwNm8bkhyA708f2',  // $12.90 (from CAD yearly/12) UPDATED
-        cad: 'price_1SApljAoYPwNm8bkITo2nHIb',  // CAD 168.31/year
-        mxn: 'price_1SApmLAoYPwNm8bkQlLbKMuD',  // MXN 1536.48/year
-        brl: 'price_1SApn3AoYPwNm8bkRP9MC8XX',  // BRL 248.25/year
-        
-        // Europe
-        eur: 'price_1SApnsAoYPwNm8bkB043Qt9L',  // EUR 103.59/year
-        gbp: 'price_1SApoiAoYPwNm8bkboVKWv6U',  // GBP 90.63/year
-        
-        // Asia-Pacific
-        inr: 'price_1SAppfAoYPwNm8bkIIyJEi9S',  // INR 24824.70/year
-        idr: 'price_1SApqnAoYPwNm8bkF4CWbOzz',  // IDR 493,605,000/year
-        php: 'price_1SApryAoYPwNm8bkiOWQ5smW',  // PHP 25821.90/year
-        thb: 'price_1SAptIAoYPwNm8bkGURhZvPc',  // THB 17847.70/year
-        vnd: 'price_1SApx5AoYPwNm8bkvdFGay0T',  // VND 999,999,999/year
-        myr: 'price_1SApxCAoYPwNm8bkZI1N4TMs',  // MYR 2392.80/year
-        sgd: 'price_1SApxKAoYPwNm8bkiP6SCdmV',  // SGD 155.43/year
-        jpy: 'price_1SApxPAoYPwNm8bkRmRKg8Sh',  // JPY 1296.36/year
-        aud: 'price_1SApxVAoYPwNm8bk2GCL4wxy',  // AUD 181.35/year
+        // Creator Pro Monthly prices
+        usd: { priceId: 'price_CREATOR_MONTHLY_USD', amount: '19.90', currency: 'usd' },
+        cad: { priceId: 'price_CREATOR_MONTHLY_CAD', amount: '26.07', currency: 'cad' },
+        mxn: { priceId: 'price_CREATOR_MONTHLY_MXN', amount: '398', currency: 'mxn' },
+        brl: { priceId: 'price_CREATOR_MONTHLY_BRL', amount: '115.62', currency: 'brl' },
+        eur: { priceId: 'price_CREATOR_MONTHLY_EUR', amount: '18.05', currency: 'eur' },
+        gbp: { priceId: 'price_CREATOR_MONTHLY_GBP', amount: '15.64', currency: 'gbp' },
+        inr: { priceId: 'price_CREATOR_MONTHLY_INR', amount: '1651', currency: 'inr' },
+        idr: { priceId: 'price_CREATOR_MONTHLY_IDR', amount: '310000', currency: 'idr' },
+        php: { priceId: 'price_CREATOR_MONTHLY_PHP', amount: '1127', currency: 'php' },
+        thb: { priceId: 'price_CREATOR_MONTHLY_THB', amount: '680', currency: 'thb' },
+        vnd: { priceId: 'price_CREATOR_MONTHLY_VND', amount: '499000', currency: 'vnd' },
+        myr: { priceId: 'price_CREATOR_MONTHLY_MYR', amount: '88.20', currency: 'myr' },
+        sgd: { priceId: 'price_CREATOR_MONTHLY_SGD', amount: '26.59', currency: 'sgd' },
+        jpy: { priceId: 'price_CREATOR_MONTHLY_JPY', amount: '3022', currency: 'jpy' },
+        aud: { priceId: 'price_CREATOR_MONTHLY_AUD', amount: '30.63', currency: 'aud' },
       },
-      // Yearly prices - extracted from your price list
+      // Yearly prices with amounts
       pro_yearly: {
-        usd: 'price_1S97lcAoYPwNm8bk8KqmQJDB',  // $49.90/year
-        cad: 'price_1SApaKAoYPwNm8bkUbHXXDrq',  // CAD 64.68/year
-        mxn: 'price_1SApaTAoYPwNm8bk6ObaYjKJ',  // MXN 588.36/year
-        brl: 'price_1SApaiAoYPwNm8bkVcfMHjPr',  // BRL 98.70/year
-        eur: 'price_1SApaxAoYPwNm8bkO8922DQs',  // EUR 39.78/year
-        gbp: 'price_1SApbBAoYPwNm8bkVeVPV7h8',  // GBP 34.81/year
-        inr: 'price_1SApbPAoYPwNm8bkplxL8pWk',  // INR 9870.12/year
-        idr: 'price_1SApbhAoYPwNm8bkrDRI7rHT',  // IDR 189,480,000/year
-        php: 'price_1SApc1AoYPwNm8bk4whd7CbS',  // PHP 9870.12/year
-        thb: 'price_1SApcEAoYPwNm8bkgUchdii0',  // THB 6879.48/year
-        vnd: 'price_1SApcbAoYPwNm8bk4qZrqk1I',  // VND 488,556,000/year
-        myr: 'price_1SApcpAoYPwNm8bkwq4n37Ji',  // MYR 897.48/year
-        sgd: 'price_1SApdGAoYPwNm8bkdHfg2sKo',  // SGD 597.00/year
-        jpy: 'price_1SApdXAoYPwNm8bkRvZ1EcRy',  // JPY 4980/year
-        aud: 'price_1SApdzAoYPwNm8bkHhtJH3Ph',  // AUD 697.00/year
+        usd: { priceId: 'price_1S97lgAoYPwNm8bkAGhzKkbY', amount: '49', currency: 'usd' },
+        cad: { priceId: 'price_PRO_YEARLY_CAD', amount: '64.68', currency: 'cad' },
+        mxn: { priceId: 'price_PRO_YEARLY_MXN', amount: '988', currency: 'mxn' },
+        brl: { priceId: 'price_PRO_YEARLY_BRL', amount: '287', currency: 'brl' },
+        eur: { priceId: 'price_PRO_YEARLY_EUR', amount: '44.80', currency: 'eur' },
+        gbp: { priceId: 'price_PRO_YEARLY_GBP', amount: '38.80', currency: 'gbp' },
+        inr: { priceId: 'price_PRO_YEARLY_INR', amount: '4100', currency: 'inr' },
+        idr: { priceId: 'price_PRO_YEARLY_IDR', amount: '770000', currency: 'idr' },
+        php: { priceId: 'price_PRO_YEARLY_PHP', amount: '2800', currency: 'php' },
+        thb: { priceId: 'price_PRO_YEARLY_THB', amount: '1690', currency: 'thb' },
+        vnd: { priceId: 'price_PRO_YEARLY_VND', amount: '1240000', currency: 'vnd' },
+        myr: { priceId: 'price_PRO_YEARLY_MYR', amount: '219', currency: 'myr' },
+        sgd: { priceId: 'price_PRO_YEARLY_SGD', amount: '66', currency: 'sgd' },
+        jpy: { priceId: 'price_PRO_YEARLY_JPY', amount: '7500', currency: 'jpy' },
+        aud: { priceId: 'price_PRO_YEARLY_AUD', amount: '76', currency: 'aud' },
       },
       max_yearly: {
-        usd: 'price_1S97loAoYPwNm8bkKUF5doij',  // $99.90/year (estimate)
-        cad: 'price_1SApjPAoYPwNm8bkJpnDEJOT',  // CAD yearly
-        mxn: 'price_1SApjCAoYPwNm8bkcw8K9lF5',  // MXN yearly
-        brl: 'price_1SApj5AoYPwNm8bkgA0yaBY8',  // BRL yearly
-        eur: 'price_1SApioAoYPwNm8bkE2xNJJCk',  // EUR yearly
-        gbp: 'price_1SApieAoYPwNm8bkJdVaWvJL',  // GBP yearly
-        inr: 'price_1SApiTAoYPwNm8bkyRbtKVz6',  // INR yearly
-        idr: 'price_1SApiIAoYPwNm8bkXz1gGzgV',  // IDR yearly
-        php: 'price_1SAphyAoYPwNm8bkNc8JYN6s',  // PHP yearly
-        thb: 'price_1SAphoAoYPwNm8bkqBQxG5Tr',  // THB yearly
-        vnd: 'price_1SApiSAoYPwNm8bkBwTalb5y',  // VND 787,230,000/year
-        myr: 'price_1SApiiAoYPwNm8bkWRS50Yzd',  // MYR 149.55/year
-        sgd: 'price_1SApj0AoYPwNm8bkI5FVpl1q',  // SGD 95.56/year
-        jpy: 'price_1SApk8AoYPwNm8bkierV3tQe',  // JPY 796.80/year
-        aud: 'price_1SApkaAoYPwNm8bkAPD57Kto',  // AUD 111.54/year
+        usd: { priceId: 'price_1S97loAoYPwNm8bkKUF5doij', amount: '79', currency: 'usd' },
+        cad: { priceId: 'price_1SApjPAoYPwNm8bkJpnDEJOT', amount: '103.50', currency: 'cad' },
+        mxn: { priceId: 'price_1SApjCAoYPwNm8bkcw8K9lF5', amount: '1580', currency: 'mxn' },
+        brl: { priceId: 'price_1SApj5AoYPwNm8bkgA0yaBY8', amount: '459', currency: 'brl' },
+        eur: { priceId: 'price_1SApioAoYPwNm8bkE2xNJJCk', amount: '71.70', currency: 'eur' },
+        gbp: { priceId: 'price_1SApieAoYPwNm8bkJdVaWvJL', amount: '62.10', currency: 'gbp' },
+        inr: { priceId: 'price_1SApiTAoYPwNm8bkyRbtKVz6', amount: '6560', currency: 'inr' },
+        idr: { priceId: 'price_1SApiIAoYPwNm8bkXz1gGzgV', amount: '1230000', currency: 'idr' },
+        php: { priceId: 'price_1SAphyAoYPwNm8bkNc8JYN6s', amount: '4480', currency: 'php' },
+        thb: { priceId: 'price_1SAphoAoYPwNm8bkqBQxG5Tr', amount: '2700', currency: 'thb' },
+        vnd: { priceId: 'price_1SApiSAoYPwNm8bkBwTalb5y', amount: '1980000', currency: 'vnd' },
+        myr: { priceId: 'price_1SApiiAoYPwNm8bkWRS50Yzd', amount: '350', currency: 'myr' },
+        sgd: { priceId: 'price_1SApj0AoYPwNm8bkI5FVpl1q', amount: '105.60', currency: 'sgd' },
+        jpy: { priceId: 'price_1SApk8AoYPwNm8bkierV3tQe', amount: '12000', currency: 'jpy' },
+        aud: { priceId: 'price_1SApkaAoYPwNm8bkAPD57Kto', amount: '121.60', currency: 'aud' },
       },
       creator_pro_yearly: {
-        usd: 'price_1S97lvAoYPwNm8bkLsFBsvHL',  // $199.90/year (estimate)
-        cad: 'price_1SApljAoYPwNm8bkITo2nHIb',  // CAD 168.31/year
-        mxn: 'price_1SApmLAoYPwNm8bkQlLbKMuD',  // MXN 1536.48/year
-        brl: 'price_1SApn3AoYPwNm8bkRP9MC8XX',  // BRL 248.25/year
-        eur: 'price_1SApnsAoYPwNm8bkB043Qt9L',  // EUR 103.59/year
-        gbp: 'price_1SApoiAoYPwNm8bkboVKWv6U',  // GBP 90.63/year
-        inr: 'price_1SAppfAoYPwNm8bkIIyJEi9S',  // INR 24824.70/year
-        idr: 'price_1SApqnAoYPwNm8bkF4CWbOzz',  // IDR 493,605,000/year
-        php: 'price_1SApryAoYPwNm8bkiOWQ5smW',  // PHP 25821.90/year
-        thb: 'price_1SAptIAoYPwNm8bkGURhZvPc',  // THB 17847.70/year
-        vnd: 'price_1SApx5AoYPwNm8bkvdFGay0T',  // VND 999,999,999/year
-        myr: 'price_1SApxCAoYPwNm8bkZI1N4TMs',  // MYR 2392.80/year
-        sgd: 'price_1SApxKAoYPwNm8bkiP6SCdmV',  // SGD 155.43/year
-        jpy: 'price_1SApxPAoYPwNm8bkRmRKg8Sh',  // JPY 1296.36/year
-        aud: 'price_1SApxVAoYPwNm8bk2GCL4wxy',  // AUD 181.35/year
+        usd: { priceId: 'price_1S97lvAoYPwNm8bkLsFBsvHL', amount: '199', currency: 'usd' },
+        cad: { priceId: 'price_1SApljAoYPwNm8bkITo2nHIb', amount: '260.70', currency: 'cad' },
+        mxn: { priceId: 'price_1SApmLAoYPwNm8bkQlLbKMuD', amount: '3980', currency: 'mxn' },
+        brl: { priceId: 'price_1SApn3AoYPwNm8bkRP9MC8XX', amount: '1156.20', currency: 'brl' },
+        eur: { priceId: 'price_1SApnsAoYPwNm8bkB043Qt9L', amount: '180.50', currency: 'eur' },
+        gbp: { priceId: 'price_1SApoiAoYPwNm8bkboVKWv6U', amount: '156.40', currency: 'gbp' },
+        inr: { priceId: 'price_1SAppfAoYPwNm8bkIIyJEi9S', amount: '16510', currency: 'inr' },
+        idr: { priceId: 'price_1SApqnAoYPwNm8bkF4CWbOzz', amount: '3100000', currency: 'idr' },
+        php: { priceId: 'price_1SApryAoYPwNm8bkiOWQ5smW', amount: '11270', currency: 'php' },
+        thb: { priceId: 'price_1SAptIAoYPwNm8bkGURhZvPc', amount: '6800', currency: 'thb' },
+        vnd: { priceId: 'price_1SApx5AoYPwNm8bkvdFGay0T', amount: '4990000', currency: 'vnd' },
+        myr: { priceId: 'price_1SApxCAoYPwNm8bkZI1N4TMs', amount: '882', currency: 'myr' },
+        sgd: { priceId: 'price_1SApxKAoYPwNm8bkiP6SCdmV', amount: '265.90', currency: 'sgd' },
+        jpy: { priceId: 'price_1SApxPAoYPwNm8bkRmRKg8Sh', amount: '30220', currency: 'jpy' },
+        aud: { priceId: 'price_1SApxVAoYPwNm8bk2GCL4wxy', amount: '306.30', currency: 'aud' },
       }
     }
   });
@@ -754,14 +741,25 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       'price_1SApdXAoYPwNm8bkRvZ1EcRy': 'pro',  // JPY monthly
       'price_1SApdzAoYPwNm8bkHhtJH3Ph': 'pro',  // AUD monthly
       
-      // MAX Monthly prices (these are actually yearly prices, divide by 12)
+      // MAX Yearly prices (these are marked as yearly)
+      'price_1S97loAoYPwNm8bkKUF5doij': 'max_yearly',  // USD yearly
       'price_1SApkaAoYPwNm8bkAPD57Kto': 'max_yearly',  // AUD yearly
       'price_1SApk8AoYPwNm8bkierV3tQe': 'max_yearly',  // JPY yearly
       'price_1SApj0AoYPwNm8bkI5FVpl1q': 'max_yearly',  // SGD yearly
       'price_1SApiiAoYPwNm8bkWRS50Yzd': 'max_yearly',  // MYR yearly
       'price_1SApiSAoYPwNm8bkBwTalb5y': 'max_yearly',  // VND yearly
+      'price_1SApjPAoYPwNm8bkJpnDEJOT': 'max_yearly',  // CAD yearly
+      'price_1SApjCAoYPwNm8bkcw8K9lF5': 'max_yearly',  // MXN yearly
+      'price_1SApj5AoYPwNm8bkgA0yaBY8': 'max_yearly',  // BRL yearly
+      'price_1SApioAoYPwNm8bkE2xNJJCk': 'max_yearly',  // EUR yearly
+      'price_1SApieAoYPwNm8bkJdVaWvJL': 'max_yearly',  // GBP yearly
+      'price_1SApiTAoYPwNm8bkyRbtKVz6': 'max_yearly',  // INR yearly
+      'price_1SApiIAoYPwNm8bkXz1gGzgV': 'max_yearly',  // IDR yearly
+      'price_1SAphyAoYPwNm8bkNc8JYN6s': 'max_yearly',  // PHP yearly
+      'price_1SAphoAoYPwNm8bkqBQxG5Tr': 'max_yearly',  // THB yearly
       
-      // CREATOR PRO Monthly prices (these are actually yearly prices)
+      // CREATOR PRO Yearly prices
+      'price_1S97lvAoYPwNm8bkLsFBsvHL': 'creator_pro_yearly',  // USD yearly
       'price_1SAplBAoYPwNm8bkhyA708f2': 'creator_pro_yearly',  // CAD yearly as USD
       'price_1SApljAoYPwNm8bkITo2nHIb': 'creator_pro_yearly',  // CAD yearly
       'price_1SApmLAoYPwNm8bkQlLbKMuD': 'creator_pro_yearly',  // MXN yearly
@@ -778,12 +776,21 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       'price_1SApxPAoYPwNm8bkRmRKg8Sh': 'creator_pro_yearly',  // JPY yearly
       'price_1SApxVAoYPwNm8bk2GCL4wxy': 'creator_pro_yearly',  // AUD yearly
       
-      // Legacy price IDs (if any still exist)
+      // Pro Yearly prices
+      'price_1S97lgAoYPwNm8bkAGhzKkbY': 'pro_yearly',  // USD yearly
+      
+      // Placeholder MAX and Creator Pro monthly price IDs (update when you have them)
+      'price_MAX_MONTHLY_USD': 'max',
+      'price_MAX_MONTHLY_CAD': 'max',
+      'price_MAX_MONTHLY_MXN': 'max',
+      'price_CREATOR_MONTHLY_USD': 'creator_pro',
+      'price_CREATOR_MONTHLY_CAD': 'creator_pro',
+      'price_CREATOR_MONTHLY_MXN': 'creator_pro',
+      
+      // Legacy price IDs
       'price_1S8FTDAoYPwNm8bkKDjYQWiL': 'pro',
       'price_1S8FTKAoYPwNm8bkxHN5YvKh': 'max',
       'price_1S8FTQAoYPwNm8bkZjbYb42N': 'creator_pro',
-      'price_1S97loAoYPwNm8bkKUF5doij': 'max_yearly',
-      'price_1S97lvAoYPwNm8bkLsFBsvHL': 'creator_pro_yearly',
     };
     
     const planId = priceToPlaneMap[priceId];
