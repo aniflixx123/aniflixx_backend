@@ -78,11 +78,11 @@ authRouter.post('/signup', async (c) => {
     if (existingEmail) {
       return c.json({ 
         success: false, 
-        error: 'Email already registered' 
+        error: 'An account with this email already exists' 
       }, 400);
     }
 
-    // Create Supabase auth user
+    // Sign up with Supabase
     const supabase = getSupabaseClient(c.env);
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: email.toLowerCase(),
@@ -91,8 +91,8 @@ authRouter.post('/signup', async (c) => {
         data: {
           username,
           full_name: fullName || username,
-        },
-      },
+        }
+      }
     });
 
     if (authError) {
@@ -106,14 +106,14 @@ authRouter.post('/signup', async (c) => {
     if (!authData.user || !authData.session) {
       return c.json({ 
         success: false, 
-        error: 'Failed to create account' 
-      }, 400);
+        error: 'Failed to create account - no session returned' 
+      }, 500);
     }
 
-    // Create user in YOUR database with YOUR ID system
+    // Create user in YOUR database
     const userId = nanoid();
-    const passwordHash = await bcrypt.hash(password, 10); // Store hash as backup
-    
+    const passwordHash = await bcrypt.hash(password, 10);
+
     await c.env.DB.prepare(`
       INSERT INTO users (
         id, 
@@ -129,10 +129,10 @@ authRouter.post('/signup', async (c) => {
       userId,
       email.toLowerCase(),
       username,
-      passwordHash // Store password hash as backup
+      passwordHash
     ).run();
 
-    // Fetch the created user
+    // Fetch the newly created user
     const newUser = await c.env.DB.prepare(`
       SELECT id, email, username, profile_image, bio, 
              is_verified, followers_count, following_count, 
@@ -141,9 +141,11 @@ authRouter.post('/signup', async (c) => {
       WHERE id = ?
     `).bind(userId).first();
 
+    // FIX: Return both access token and refresh token
     return c.json({
       success: true,
       token: authData.session.access_token,
+      refresh_token: authData.session.refresh_token, // ADDED THIS
       user: {
         ...newUser,
         displayName: fullName || username,
@@ -238,9 +240,11 @@ authRouter.post('/login', async (c) => {
         WHERE id = ?
       `).bind(userId).first();
 
+      // FIX: Return both access token and refresh token for new user
       return c.json({
         success: true,
         token: authData.session.access_token,
+        refresh_token: authData.session.refresh_token, // ADDED THIS
         user: newUser
       });
     }
@@ -253,9 +257,11 @@ authRouter.post('/login', async (c) => {
       }, 403);
     }
 
+    // FIX: Return both access token and refresh token for existing user
     return c.json({
       success: true,
       token: authData.session.access_token,
+      refresh_token: authData.session.refresh_token, // ADDED THIS
       user: dbUser
     });
 
@@ -351,7 +357,7 @@ authRouter.get('/profile', async (c) => {
   }
 });
 
-// PUT /api/auth/profile - Update profile
+// PUT /api/auth/profile - Update user profile
 authRouter.put('/profile', async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
@@ -364,7 +370,6 @@ authRouter.put('/profile', async (c) => {
     }
 
     const token = authHeader.substring(7);
-    const updates = await c.req.json();
     
     // Verify token with Supabase
     const supabase = getSupabaseClient(c.env);
@@ -377,16 +382,25 @@ authRouter.put('/profile', async (c) => {
       }, 401);
     }
 
-    // Build update query dynamically
-    const allowedFields = ['username', 'bio', 'profile_image', 'display_name'];
+    const updates = await c.req.json();
+
+    // Build update query
     const updateFields = [];
     const updateValues = [];
-    
-    for (const field of allowedFields) {
-      if (updates[field] !== undefined) {
-        updateFields.push(`${field} = ?`);
-        updateValues.push(updates[field]);
-      }
+
+    if (updates.username !== undefined) {
+      updateFields.push('username = ?');
+      updateValues.push(updates.username);
+    }
+
+    if (updates.bio !== undefined) {
+      updateFields.push('bio = ?');
+      updateValues.push(updates.bio);
+    }
+
+    if (updates.profile_image !== undefined) {
+      updateFields.push('profile_image = ?');
+      updateValues.push(updates.profile_image);
     }
 
     if (updateFields.length === 0) {

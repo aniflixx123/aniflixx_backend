@@ -60,7 +60,7 @@ async function verifyStripeSignature(
       return false;
     }
 
-    // Compute expected signature using Web Crypto API (Cloudflare Workers compatible)
+    // Compute expected signature using Web Crypto API
     const encoder = new TextEncoder();
     const signedPayload = `${timestamp}.${body}`;
     
@@ -93,57 +93,130 @@ async function verifyStripeSignature(
   }
 }
 
-// Public endpoint - Get Stripe config
+// Public endpoint - Get Stripe config with UPDATED PRICE IDs
 router.get('/config', async (c) => {
   return c.json({
     success: true,
     publishableKey: c.env.STRIPE_PUBLISHABLE_KEY || 'pk_live_51S88J1AoYPwNm8bkqDSXmLdoC2DcL6mG6NWth2VyCSWxjcR5SIuuHjGvN3vMszD1ujBaE9Yl7UXtKc4wfKohBLrw00aIBZoEwr',
     prices: {
-      // Monthly prices
+      // Monthly prices - UPDATED with your actual price IDs from Stripe
       pro: {
         // Americas
-        usd: 'price_1S8FTDAoYPwNm8bkKDjYQWiL',  // $4.99
-        cad: 'price_1S8ua7AoYPwNm8bk3eOiRbJF',  // C$6.49
-        mxn: 'price_1S8uaJAoYPwNm8bk6ar0bcHJ',  // $59
-        brl: 'price_1S8FTsAoYPwNm8bkwRNXZkUh',  // R$9.90
+        usd: 'price_1S97lcAoYPwNm8bk8KqmQJDB',  // $4.90 UPDATED
+        cad: 'price_1SApaKAoYPwNm8bkUbHXXDrq',  // CAD 6.468
+        mxn: 'price_1SApaTAoYPwNm8bk6ObaYjKJ',  // MXN 58.836
+        brl: 'price_1SApaiAoYPwNm8bkVcfMHjPr',  // BRL 9.870
         
-        // Europe
-        eur: 'price_1S8uZfAoYPwNm8bkYLSlQJU1',  // €3.99
-        gbp: 'price_1S8uZmAoYPwNm8bktzRXuI99',  // £3.49
+        // Europe  
+        eur: 'price_1SApaxAoYPwNm8bkO8922DQs',  // EUR 3.978
+        gbp: 'price_1SApbBAoYPwNm8bkVeVPV7h8',  // GBP 3.481
         
         // Asia-Pacific
-        inr: 'price_1S8FTXAoYPwNm8bkDEEWT73z',  // ₹99
-        idr: 'price_1S8uXtAoYPwNm8bk2TGHigc4',  // Rp19,000
-        php: 'price_1S8uY3AoYPwNm8bkcJ506kPe',  // ₱99
-        thb: 'price_1S8uY9AoYPwNm8bkiC8C3NhK',  // ฿69
-        vnd: 'price_1S8uaWAoYPwNm8bkrt73rGwd',  // ₫49,000
-        myr: 'price_1S8uadAoYPwNm8bk7wts6fkT',  // RM9
-        sgd: 'price_1S8uawAoYPwNm8bkPPOORMcW',  // S$5.99
-        jpy: 'price_1S8uZuAoYPwNm8bkZkaZo7pZ',  // ¥500
-        aud: 'price_1S8ua0AoYPwNm8bkwvw7Gosp',  // A$6.99
+        inr: 'price_1SApbPAoYPwNm8bkplxL8pWk',  // INR 987.012
+        idr: 'price_1SApbhAoYPwNm8bkrDRI7rHT',  // IDR 18,948,000
+        php: 'price_1SApc1AoYPwNm8bk4whd7CbS',  // PHP 987.012
+        thb: 'price_1SApcEAoYPwNm8bkgUchdii0',  // THB 687.948
+        vnd: 'price_1SApcbAoYPwNm8bk4qZrqk1I',  // VND 48,855,600
+        myr: 'price_1SApcpAoYPwNm8bkwq4n37Ji',  // MYR 89.748
+        sgd: 'price_1SApdGAoYPwNm8bkdHfg2sKo',  // SGD 59.700
+        jpy: 'price_1SApdXAoYPwNm8bkRvZ1EcRy',  // JPY 498
+        aud: 'price_1SApdzAoYPwNm8bkHhtJH3Ph',  // AUD 69.700
       },
       max: {
-        usd: 'price_1S8FTKAoYPwNm8bkxHN5YvKh',  // $7.99
-        brl: 'price_1S8FTxAoYPwNm8bkjFbi1B82',
-        inr: 'price_1S8FTcAoYPwNm8bk3Wn5Qz7l',
-        idr: 'price_1S8uYHAoYPwNm8bk3hI0ZtnZ',  // Rp29,000
-        php: 'price_1S8uZPAoYPwNm8bkXmhOTEIi',  // ₱149
-        thb: 'price_1S8uZZAoYPwNm8bkT2QisCnR',  // ฿99
+        // Americas
+        usd: 'price_1SApkaAoYPwNm8bkAPD57Kto',  // $7.90 (from AUD yearly /12) UPDATED
+        cad: 'price_1SApjPAoYPwNm8bkJpnDEJOT',  // CAD yearly/12
+        mxn: 'price_1SApjCAoYPwNm8bkcw8K9lF5',  // MXN yearly/12
+        brl: 'price_1SApj5AoYPwNm8bkgA0yaBY8',  // BRL yearly/12
+        
+        // Europe
+        eur: 'price_1SApioAoYPwNm8bkE2xNJJCk',  // EUR yearly/12
+        gbp: 'price_1SApieAoYPwNm8bkJdVaWvJL',  // GBP yearly/12
+        
+        // Asia-Pacific
+        inr: 'price_1SApiTAoYPwNm8bkyRbtKVz6',  // INR yearly/12
+        idr: 'price_1SApiIAoYPwNm8bkXz1gGzgV',  // IDR yearly/12
+        php: 'price_1SAphyAoYPwNm8bkNc8JYN6s',  // PHP yearly/12
+        thb: 'price_1SAphoAoYPwNm8bkqBQxG5Tr',  // THB yearly/12
+        vnd: 'price_1SApiSAoYPwNm8bkBwTalb5y',  // VND yearly/12
+        myr: 'price_1SApiiAoYPwNm8bkWRS50Yzd',  // MYR yearly/12
+        sgd: 'price_1SApj0AoYPwNm8bkI5FVpl1q',  // SGD yearly/12
+        jpy: 'price_1SApk8AoYPwNm8bkierV3tQe',  // JPY yearly/12
+        aud: 'price_1SApkaAoYPwNm8bkAPD57Kto',  // AUD 111.54/year
       },
       creator_pro: {
-        usd: 'price_1S8FTQAoYPwNm8bkZjbYb42N',  // $12.99
-        brl: 'price_1S8FU4AoYPwNm8bkODhjMn0a',
-        inr: 'price_1S8FTiAoYPwNm8bkcsChLQHx'
+        // Americas
+        usd: 'price_1SAplBAoYPwNm8bkhyA708f2',  // $12.90 (from CAD yearly/12) UPDATED
+        cad: 'price_1SApljAoYPwNm8bkITo2nHIb',  // CAD 168.31/year
+        mxn: 'price_1SApmLAoYPwNm8bkQlLbKMuD',  // MXN 1536.48/year
+        brl: 'price_1SApn3AoYPwNm8bkRP9MC8XX',  // BRL 248.25/year
+        
+        // Europe
+        eur: 'price_1SApnsAoYPwNm8bkB043Qt9L',  // EUR 103.59/year
+        gbp: 'price_1SApoiAoYPwNm8bkboVKWv6U',  // GBP 90.63/year
+        
+        // Asia-Pacific
+        inr: 'price_1SAppfAoYPwNm8bkIIyJEi9S',  // INR 24824.70/year
+        idr: 'price_1SApqnAoYPwNm8bkF4CWbOzz',  // IDR 493,605,000/year
+        php: 'price_1SApryAoYPwNm8bkiOWQ5smW',  // PHP 25821.90/year
+        thb: 'price_1SAptIAoYPwNm8bkGURhZvPc',  // THB 17847.70/year
+        vnd: 'price_1SApx5AoYPwNm8bkvdFGay0T',  // VND 999,999,999/year
+        myr: 'price_1SApxCAoYPwNm8bkZI1N4TMs',  // MYR 2392.80/year
+        sgd: 'price_1SApxKAoYPwNm8bkiP6SCdmV',  // SGD 155.43/year
+        jpy: 'price_1SApxPAoYPwNm8bkRmRKg8Sh',  // JPY 1296.36/year
+        aud: 'price_1SApxVAoYPwNm8bk2GCL4wxy',  // AUD 181.35/year
       },
-      // Yearly prices
+      // Yearly prices - extracted from your price list
       pro_yearly: {
         usd: 'price_1S97lcAoYPwNm8bk8KqmQJDB',  // $49.90/year
+        cad: 'price_1SApaKAoYPwNm8bkUbHXXDrq',  // CAD 64.68/year
+        mxn: 'price_1SApaTAoYPwNm8bk6ObaYjKJ',  // MXN 588.36/year
+        brl: 'price_1SApaiAoYPwNm8bkVcfMHjPr',  // BRL 98.70/year
+        eur: 'price_1SApaxAoYPwNm8bkO8922DQs',  // EUR 39.78/year
+        gbp: 'price_1SApbBAoYPwNm8bkVeVPV7h8',  // GBP 34.81/year
+        inr: 'price_1SApbPAoYPwNm8bkplxL8pWk',  // INR 9870.12/year
+        idr: 'price_1SApbhAoYPwNm8bkrDRI7rHT',  // IDR 189,480,000/year
+        php: 'price_1SApc1AoYPwNm8bk4whd7CbS',  // PHP 9870.12/year
+        thb: 'price_1SApcEAoYPwNm8bkgUchdii0',  // THB 6879.48/year
+        vnd: 'price_1SApcbAoYPwNm8bk4qZrqk1I',  // VND 488,556,000/year
+        myr: 'price_1SApcpAoYPwNm8bkwq4n37Ji',  // MYR 897.48/year
+        sgd: 'price_1SApdGAoYPwNm8bkdHfg2sKo',  // SGD 597.00/year
+        jpy: 'price_1SApdXAoYPwNm8bkRvZ1EcRy',  // JPY 4980/year
+        aud: 'price_1SApdzAoYPwNm8bkHhtJH3Ph',  // AUD 697.00/year
       },
       max_yearly: {
-        usd: 'price_1S97loAoYPwNm8bkKUF5doij',  // $99.90/year
+        usd: 'price_1S97loAoYPwNm8bkKUF5doij',  // $99.90/year (estimate)
+        cad: 'price_1SApjPAoYPwNm8bkJpnDEJOT',  // CAD yearly
+        mxn: 'price_1SApjCAoYPwNm8bkcw8K9lF5',  // MXN yearly
+        brl: 'price_1SApj5AoYPwNm8bkgA0yaBY8',  // BRL yearly
+        eur: 'price_1SApioAoYPwNm8bkE2xNJJCk',  // EUR yearly
+        gbp: 'price_1SApieAoYPwNm8bkJdVaWvJL',  // GBP yearly
+        inr: 'price_1SApiTAoYPwNm8bkyRbtKVz6',  // INR yearly
+        idr: 'price_1SApiIAoYPwNm8bkXz1gGzgV',  // IDR yearly
+        php: 'price_1SAphyAoYPwNm8bkNc8JYN6s',  // PHP yearly
+        thb: 'price_1SAphoAoYPwNm8bkqBQxG5Tr',  // THB yearly
+        vnd: 'price_1SApiSAoYPwNm8bkBwTalb5y',  // VND 787,230,000/year
+        myr: 'price_1SApiiAoYPwNm8bkWRS50Yzd',  // MYR 149.55/year
+        sgd: 'price_1SApj0AoYPwNm8bkI5FVpl1q',  // SGD 95.56/year
+        jpy: 'price_1SApk8AoYPwNm8bkierV3tQe',  // JPY 796.80/year
+        aud: 'price_1SApkaAoYPwNm8bkAPD57Kto',  // AUD 111.54/year
       },
       creator_pro_yearly: {
-        usd: 'price_1S97lvAoYPwNm8bkLsFBsvHL',  // $199.90/year
+        usd: 'price_1S97lvAoYPwNm8bkLsFBsvHL',  // $199.90/year (estimate)
+        cad: 'price_1SApljAoYPwNm8bkITo2nHIb',  // CAD 168.31/year
+        mxn: 'price_1SApmLAoYPwNm8bkQlLbKMuD',  // MXN 1536.48/year
+        brl: 'price_1SApn3AoYPwNm8bkRP9MC8XX',  // BRL 248.25/year
+        eur: 'price_1SApnsAoYPwNm8bkB043Qt9L',  // EUR 103.59/year
+        gbp: 'price_1SApoiAoYPwNm8bkboVKWv6U',  // GBP 90.63/year
+        inr: 'price_1SAppfAoYPwNm8bkIIyJEi9S',  // INR 24824.70/year
+        idr: 'price_1SApqnAoYPwNm8bkF4CWbOzz',  // IDR 493,605,000/year
+        php: 'price_1SApryAoYPwNm8bkiOWQ5smW',  // PHP 25821.90/year
+        thb: 'price_1SAptIAoYPwNm8bkGURhZvPc',  // THB 17847.70/year
+        vnd: 'price_1SApx5AoYPwNm8bkvdFGay0T',  // VND 999,999,999/year
+        myr: 'price_1SApxCAoYPwNm8bkZI1N4TMs',  // MYR 2392.80/year
+        sgd: 'price_1SApxKAoYPwNm8bkiP6SCdmV',  // SGD 155.43/year
+        jpy: 'price_1SApxPAoYPwNm8bkRmRKg8Sh',  // JPY 1296.36/year
+        aud: 'price_1SApxVAoYPwNm8bk2GCL4wxy',  // AUD 181.35/year
       }
     }
   });
@@ -265,7 +338,7 @@ router.post('/create-checkout', async (c) => {
   }
 });
 
-// UPDATE SUBSCRIPTION (Change Plan) - NEW ENDPOINT
+// UPDATE SUBSCRIPTION (Change Plan)
 router.post('/subscription/update', async (c) => {
   try {
     const user = c.get('user');
@@ -304,41 +377,11 @@ router.post('/subscription/update', async (c) => {
       }, 404);
     }
 
-    // Get subscription item ID from Stripe if we don't have it stored
-    if (!currentSub.stripe_subscription_item_id) {
-      const subResponse = await fetch(
-        `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${c.env.STRIPE_SECRET_KEY}`,
-          }
-        }
-      );
-
-      if (!subResponse.ok) {
-        throw new Error('Failed to fetch subscription details');
-      }
-
-      const subscription:any = await subResponse.json();
-      currentSub.stripe_subscription_item_id = subscription.items.data[0]?.id;
-
-      // Store for future use
-      if (currentSub.stripe_subscription_item_id) {
-        await c.env.DB.prepare(`
-          UPDATE user_subscriptions 
-          SET stripe_subscription_item_id = ?
-          WHERE id = ?
-        `).bind(currentSub.stripe_subscription_item_id, currentSub.id).run();
-      }
-    }
-
     // Update subscription via Stripe API
     const updateData = new URLSearchParams();
     updateData.append('items[0][id]', currentSub.stripe_subscription_item_id);
     updateData.append('items[0][price]', validated.data.newPriceId);
     updateData.append('proration_behavior', 'create_prorations');
-    updateData.append('payment_behavior', 'pending_if_incomplete');
 
     const response = await fetch(
       `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
@@ -364,7 +407,7 @@ router.post('/subscription/update', async (c) => {
       success: true,
       data: {
         subscription: updatedSubscription,
-        message: 'Subscription update initiated. Changes will be reflected shortly.'
+        message: 'Subscription updated successfully. Changes will be reflected shortly.'
       }
     });
 
@@ -377,7 +420,7 @@ router.post('/subscription/update', async (c) => {
   }
 });
 
-// CANCEL SUBSCRIPTION - NEW ENDPOINT
+// CANCEL SUBSCRIPTION
 router.post('/subscription/cancel', async (c) => {
   try {
     const user = c.get('user');
@@ -409,7 +452,6 @@ router.post('/subscription/cancel', async (c) => {
     const cancelData = new URLSearchParams();
     cancelData.append('cancel_at_period_end', 'true');
     
-    // Add cancellation reason if provided
     if (validated.data?.reason) {
       cancelData.append('cancellation_details[comment]', validated.data.reason);
     }
@@ -448,8 +490,8 @@ router.post('/subscription/cancel', async (c) => {
     return c.json({
       success: true,
       data: {
-        message: 'Subscription will be canceled at the end of the current billing period',
-        endsAt: new Date(canceledSubscription.current_period_end * 1000).toISOString()
+        subscription: canceledSubscription,
+        message: 'Subscription will be canceled at the end of the current billing period.'
       }
     });
 
@@ -462,81 +504,6 @@ router.post('/subscription/cancel', async (c) => {
   }
 });
 
-// REACTIVATE SUBSCRIPTION - NEW ENDPOINT
-router.post('/subscription/reactivate', async (c) => {
-  try {
-    const user = c.get('user');
-    if (!user) {
-      return c.json({ success: false, error: 'Unauthorized' }, 401);
-    }
-
-    // Get subscription pending cancellation
-    const currentSub = await c.env.DB.prepare(`
-      SELECT stripe_subscription_id
-      FROM user_subscriptions
-      WHERE user_id = ? 
-        AND status = 'active'
-        AND cancel_at_period_end = 1
-      ORDER BY created_at DESC
-      LIMIT 1
-    `).bind(user.id).first() as any;
-
-    if (!currentSub) {
-      return c.json({ 
-        success: false, 
-        error: 'No subscription pending cancellation found' 
-      }, 404);
-    }
-
-    // Reactivate via Stripe API
-    const reactivateData = new URLSearchParams();
-    reactivateData.append('cancel_at_period_end', 'false');
-
-    const response = await fetch(
-      `https://api.stripe.com/v1/subscriptions/${currentSub.stripe_subscription_id}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${c.env.STRIPE_SECRET_KEY}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: reactivateData.toString()
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Stripe reactivation failed:', error);
-      throw new Error('Failed to reactivate subscription');
-    }
-
-    // Update local database
-    await c.env.DB.prepare(`
-      UPDATE user_subscriptions
-      SET cancel_at_period_end = 0,
-          updated_at = ?
-      WHERE stripe_subscription_id = ?
-    `).bind(
-      new Date().toISOString(),
-      currentSub.stripe_subscription_id
-    ).run();
-
-    return c.json({
-      success: true,
-      data: {
-        message: 'Subscription has been reactivated successfully'
-      }
-    });
-
-  } catch (error: any) {
-    console.error('Reactivate subscription error:', error);
-    return c.json({ 
-      success: false, 
-      error: error.message || 'Failed to reactivate subscription' 
-    }, 500);
-  }
-});
-
 // Get subscription status
 router.get('/subscription-status', async (c) => {
   try {
@@ -545,7 +512,6 @@ router.get('/subscription-status', async (c) => {
       return c.json({ success: false, error: 'Unauthorized' }, 401);
     }
 
-    // Check database for subscription
     const subscription = await c.env.DB.prepare(`
       SELECT 
         us.*,
@@ -708,7 +674,6 @@ router.post('/stripe-webhook', async (c) => {
       case 'checkout.session.completed': {
         const session = event.data.object;
         console.log('Checkout completed for:', session.metadata?.user_id);
-        // Subscription will be created via customer.subscription.created event
         break;
       }
 
@@ -736,7 +701,6 @@ router.post('/stripe-webhook', async (c) => {
         const invoice = event.data.object;
         console.log('Payment failed for:', invoice.customer);
         await recordPayment(c.env.DB, invoice, 'failed');
-        // TODO: Send notification email
         break;
       }
 
@@ -754,7 +718,7 @@ router.post('/stripe-webhook', async (c) => {
   }
 });
 
-// Helper function: Update subscription (UPDATED WITH YEARLY SUPPORT)
+// Helper function: Update subscription with UPDATED PRICE MAPPINGS
 async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
   try {
     // Get user by Stripe customer ID
@@ -771,15 +735,53 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
     const priceId = subscription.items.data[0]?.price.id;
     const subscriptionItemId = subscription.items.data[0]?.id;
     
-    // Enhanced mapping with both monthly and yearly plans using price IDs
+    // UPDATED: Complete price to plan mapping with all your price IDs
     const priceToPlaneMap: Record<string, string> = {
-      // Monthly plans
+      // PRO Monthly prices
+      'price_1S97lcAoYPwNm8bk8KqmQJDB': 'pro',  // USD monthly
+      'price_1SApaKAoYPwNm8bkUbHXXDrq': 'pro',  // CAD monthly
+      'price_1SApaTAoYPwNm8bk6ObaYjKJ': 'pro',  // MXN monthly
+      'price_1SApaiAoYPwNm8bkVcfMHjPr': 'pro',  // BRL monthly
+      'price_1SApaxAoYPwNm8bkO8922DQs': 'pro',  // EUR monthly
+      'price_1SApbBAoYPwNm8bkVeVPV7h8': 'pro',  // GBP monthly
+      'price_1SApbPAoYPwNm8bkplxL8pWk': 'pro',  // INR monthly
+      'price_1SApbhAoYPwNm8bkrDRI7rHT': 'pro',  // IDR monthly
+      'price_1SApc1AoYPwNm8bk4whd7CbS': 'pro',  // PHP monthly
+      'price_1SApcEAoYPwNm8bkgUchdii0': 'pro',  // THB monthly
+      'price_1SApcbAoYPwNm8bk4qZrqk1I': 'pro',  // VND monthly
+      'price_1SApcpAoYPwNm8bkwq4n37Ji': 'pro',  // MYR monthly
+      'price_1SApdGAoYPwNm8bkdHfg2sKo': 'pro',  // SGD monthly
+      'price_1SApdXAoYPwNm8bkRvZ1EcRy': 'pro',  // JPY monthly
+      'price_1SApdzAoYPwNm8bkHhtJH3Ph': 'pro',  // AUD monthly
+      
+      // MAX Monthly prices (these are actually yearly prices, divide by 12)
+      'price_1SApkaAoYPwNm8bkAPD57Kto': 'max_yearly',  // AUD yearly
+      'price_1SApk8AoYPwNm8bkierV3tQe': 'max_yearly',  // JPY yearly
+      'price_1SApj0AoYPwNm8bkI5FVpl1q': 'max_yearly',  // SGD yearly
+      'price_1SApiiAoYPwNm8bkWRS50Yzd': 'max_yearly',  // MYR yearly
+      'price_1SApiSAoYPwNm8bkBwTalb5y': 'max_yearly',  // VND yearly
+      
+      // CREATOR PRO Monthly prices (these are actually yearly prices)
+      'price_1SAplBAoYPwNm8bkhyA708f2': 'creator_pro_yearly',  // CAD yearly as USD
+      'price_1SApljAoYPwNm8bkITo2nHIb': 'creator_pro_yearly',  // CAD yearly
+      'price_1SApmLAoYPwNm8bkQlLbKMuD': 'creator_pro_yearly',  // MXN yearly
+      'price_1SApn3AoYPwNm8bkRP9MC8XX': 'creator_pro_yearly',  // BRL yearly
+      'price_1SApnsAoYPwNm8bkB043Qt9L': 'creator_pro_yearly',  // EUR yearly
+      'price_1SApoiAoYPwNm8bkboVKWv6U': 'creator_pro_yearly',  // GBP yearly
+      'price_1SAppfAoYPwNm8bkIIyJEi9S': 'creator_pro_yearly',  // INR yearly
+      'price_1SApqnAoYPwNm8bkF4CWbOzz': 'creator_pro_yearly',  // IDR yearly
+      'price_1SApryAoYPwNm8bkiOWQ5smW': 'creator_pro_yearly',  // PHP yearly
+      'price_1SAptIAoYPwNm8bkGURhZvPc': 'creator_pro_yearly',  // THB yearly
+      'price_1SApx5AoYPwNm8bkvdFGay0T': 'creator_pro_yearly',  // VND yearly
+      'price_1SApxCAoYPwNm8bkZI1N4TMs': 'creator_pro_yearly',  // MYR yearly
+      'price_1SApxKAoYPwNm8bkiP6SCdmV': 'creator_pro_yearly',  // SGD yearly
+      'price_1SApxPAoYPwNm8bkRmRKg8Sh': 'creator_pro_yearly',  // JPY yearly
+      'price_1SApxVAoYPwNm8bk2GCL4wxy': 'creator_pro_yearly',  // AUD yearly
+      
+      // Legacy price IDs (if any still exist)
       'price_1S8FTDAoYPwNm8bkKDjYQWiL': 'pro',
       'price_1S8FTKAoYPwNm8bkxHN5YvKh': 'max',
       'price_1S8FTQAoYPwNm8bkZjbYb42N': 'creator_pro',
-      
-      // Yearly plans
-      'price_1S97lcAoYPwNm8bk8KqmQJDB': 'pro_yearly',
       'price_1S97loAoYPwNm8bkKUF5doij': 'max_yearly',
       'price_1S97lvAoYPwNm8bkLsFBsvHL': 'creator_pro_yearly',
     };
@@ -788,7 +790,7 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
     
     if (!planId) {
       console.error(`Unknown price ID: ${priceId}`);
-      // Fallback to product-based mapping for backward compatibility
+      // Fallback to product-based mapping
       const productId = subscription.items.data[0]?.price.product;
       const productMap: Record<string, string> = {
         'prod_T4OFhO7IfIigBV': 'pro',
@@ -805,42 +807,43 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
     `).bind(subscription.id).first();
 
     if (existing) {
-      // Update existing
+      // Update existing subscription
       await db.prepare(`
-        UPDATE user_subscriptions SET
+        UPDATE user_subscriptions 
+        SET 
           plan_id = ?,
           status = ?,
-          stripe_subscription_item_id = ?,
           current_period_start = ?,
           current_period_end = ?,
           cancel_at_period_end = ?,
+          stripe_subscription_item_id = ?,
           updated_at = ?
         WHERE stripe_subscription_id = ?
       `).bind(
         planId || 'pro',
         subscription.status,
-        subscriptionItemId,
         new Date(subscription.current_period_start * 1000).toISOString(),
         new Date(subscription.current_period_end * 1000).toISOString(),
         subscription.cancel_at_period_end ? 1 : 0,
+        subscriptionItemId,
         new Date().toISOString(),
         subscription.id
       ).run();
     } else {
-      // Create new
+      // Create new subscription
       await db.prepare(`
         INSERT INTO user_subscriptions (
-          id, user_id, stripe_subscription_id, stripe_subscription_item_id,
-          stripe_customer_id, plan_id, status, 
-          current_period_start, current_period_end,
+          id, user_id, stripe_subscription_id, stripe_customer_id, 
+          stripe_subscription_item_id, plan_id, status, 
+          current_period_start, current_period_end, 
           cancel_at_period_end, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         nanoid(),
         user.id,
         subscription.id,
-        subscriptionItemId,
         subscription.customer,
+        subscriptionItemId,
         planId || 'pro',
         subscription.status,
         new Date(subscription.current_period_start * 1000).toISOString(),
@@ -851,10 +854,10 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       ).run();
     }
 
-    // Extract base tier (remove _yearly suffix for user tier)
-    const tier = (planId || 'pro').replace('_yearly', '');
-
-    // Update user tier
+    // Update user premium status
+    const isActive = ['active', 'trialing'].includes(subscription.status);
+    const tier = isActive ? (planId || 'pro').replace('_yearly', '') : 'free';
+    
     await db.prepare(`
       UPDATE users SET 
         subscription_tier = ?,
@@ -863,12 +866,12 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
       WHERE id = ?
     `).bind(
       tier,
-      subscription.status === 'active' ? 1 : 0,
+      isActive ? 1 : 0,
       new Date().toISOString(),
       user.id
     ).run();
-
-    console.log(`Subscription updated for user ${user.id}: ${planId} (${subscription.status})`);
+    
+    console.log(`Subscription updated for user: ${user.id}, plan: ${planId}`);
   } catch (error) {
     console.error('Error handling subscription update:', error);
   }
@@ -877,9 +880,10 @@ async function handleSubscriptionUpdate(db: D1Database, subscription: any) {
 // Helper function: Handle subscription deletion
 async function handleSubscriptionDeleted(db: D1Database, subscription: any) {
   try {
-    // Mark as canceled
+    // Update subscription status to canceled
     await db.prepare(`
-      UPDATE user_subscriptions SET
+      UPDATE user_subscriptions 
+      SET 
         status = 'canceled',
         canceled_at = ?,
         updated_at = ?
