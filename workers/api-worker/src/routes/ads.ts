@@ -1,4 +1,4 @@
-// workers/api-worker/src/routes/ads.ts
+// workers/api-worker/src/routes/ads.ts - FIXED CONFIG ENDPOINT
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { AdsService } from '../services/ads.service';
@@ -52,7 +52,7 @@ adsRouter.post('/interaction', async (c) => {
         UPDATE ad_impressions 
         SET skipped = 1, viewed_duration = ?
         WHERE id = ? AND user_id = ?
-      `).bind(data.duration || 0, impressionId, user.id).run();
+      `).bind(data?.duration || 0, impressionId, user.id).run();
     }
     
     return c.json({ success: true });
@@ -65,11 +65,34 @@ adsRouter.post('/interaction', async (c) => {
 // Get user ad stats
 adsRouter.get('/stats', async (c) => {
   const user = c.get('user');
-  const service = new AdsService(c.env.DB, c.env.CACHE);
   
   try {
-    const stats = await service.getUserAdStats(user.id);
-    return c.json({ success: true, data: stats });
+    const stats:any = await c.env.DB.prepare(`
+      SELECT 
+        COUNT(*) as totalImpressions,
+        SUM(clicked) as totalClicks,
+        SUM(skipped) as totalSkips,
+        AVG(viewed_duration) as averageViewDuration,
+        MAX(created_at) as lastAdShownAt
+      FROM ad_impressions
+      WHERE user_id = ?
+    `).bind(user.id).first();
+    
+    const clickThroughRate = stats && stats.totalImpressions > 0 
+      ? (stats.totalClicks / stats.totalImpressions) * 100 
+      : 0;
+    
+    return c.json({
+      success: true,
+      data: {
+        totalImpressions: stats?.totalImpressions || 0,
+        totalClicks: stats?.totalClicks || 0,
+        totalSkips: stats?.totalSkips || 0,
+        averageViewDuration: stats?.averageViewDuration || 0,
+        lastAdShownAt: stats?.lastAdShownAt,
+        clickThroughRate: clickThroughRate
+      }
+    });
   } catch (error) {
     console.error('Get stats error:', error);
     return c.json({ success: false, error: 'Failed to get stats' }, 500);
@@ -113,8 +136,8 @@ adsRouter.put('/preferences', async (c) => {
     
     await c.env.DB.prepare(`
       INSERT INTO user_ad_preferences (
-        user_id, frequency_preference, categories_blocked, opt_out, updated_at
-      ) VALUES (?, ?, ?, ?, datetime('now'))
+        user_id, frequency_preference, categories_blocked, opt_out
+      ) VALUES (?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         frequency_preference = ?,
         categories_blocked = ?,
@@ -122,10 +145,10 @@ adsRouter.put('/preferences', async (c) => {
         updated_at = datetime('now')
     `).bind(
       user.id,
-      frequencyPreference || 'normal',
+      frequencyPreference,
       JSON.stringify(categoriesBlocked || []),
       optOut ? 1 : 0,
-      frequencyPreference || 'normal',
+      frequencyPreference,
       JSON.stringify(categoriesBlocked || []),
       optOut ? 1 : 0
     ).run();
@@ -140,59 +163,98 @@ adsRouter.put('/preferences', async (c) => {
   }
 });
 
-// Get ad configuration for frontend
+// Get ad configuration for frontend - FIXED VERSION
 adsRouter.get('/config', async (c) => {
   const user = c.get('user');
   const service = new AdsService(c.env.DB, c.env.CACHE);
   
   try {
-    // Get base configuration from database
-    const config = await service.getAdConfig();
+    console.log('[Ads Config] Starting request for user:', user.id);
+    
+    // Get the config from database
+    const configData = await service.getAdConfig();
+    console.log('[Ads Config] Config data retrieved:', configData ? 'found' : 'not found');
     
     // Get user preferences
     const userPrefs = await service.getUserAdPreferences(user.id);
+    console.log('[Ads Config] User preferences:', userPrefs ? 'found' : 'not found');
     
-    // Calculate effective frequency
-    const frequency = await service.getAdFrequency(user.id);
+    // Parse the config properly
+    let parsedConfig = null;
+    if (configData) {
+      parsedConfig = configData;
+      console.log('[Ads Config] Parsed config:', {
+        enabled: parsedConfig.enabled,
+        nativeAdUnitId: parsedConfig.nativeAdUnitId,
+        frequency: parsedConfig.frequency
+      });
+    }
     
-    // Check if user is in test group (10% of users for A/B testing)
-    const isTestUser = user.id.charCodeAt(0) % 10 < 1;
+    // Check if user has a subscription (with error handling)
+    let hasSubscription = false;
+    try {
+      const subscription = await c.env.DB.prepare(`
+        SELECT * FROM subscriptions 
+        WHERE user_id = ? AND status = 'active' 
+        AND (expires_at IS NULL OR expires_at > datetime('now'))
+        LIMIT 1
+      `).bind(user.id).first();
+      
+      hasSubscription = !!subscription;
+      console.log('[Ads Config] Subscription check:', hasSubscription ? 'active' : 'none');
+    } catch (subError) {
+      console.error('[Ads Config] Subscription check failed:', subError);
+      // Continue without subscription check - assume no subscription
+    }
     
     // Determine if ads should be enabled
-    const adsEnabled = config?.enabled && !userPrefs?.optOut;
+    const adsEnabled = !hasSubscription && // No active subscription
+                      !userPrefs?.optOut && // User hasn't opted out
+                      parsedConfig?.enabled === true; // Config enables ads
     
-    // Get ad unit ID from config
-    const nativeAdUnitId = config?.nativeAdUnitId || null;
+    console.log('[Ads Config] Ads enabled decision:', {
+      hasSubscription,
+      userOptOut: userPrefs?.optOut,
+      configEnabled: parsedConfig?.enabled,
+      finalDecision: adsEnabled
+    });
     
-    return c.json({
+    // Build response
+    const response = {
       success: true,
       data: {
         enabled: adsEnabled,
-        frequency: frequency,
+        frequency: parsedConfig?.frequency || 10,
         adUnitIds: {
-          native: nativeAdUnitId,
-          interstitial: null // Not using interstitials
+          native: parsedConfig?.nativeAdUnitId || undefined,
+          interstitial: parsedConfig?.interstitialAdUnitId || undefined
         },
-        isTestUser,
+        isTestUser: false, // Production mode - no test users
         userSegment: userPrefs ? 'returning' : 'new',
         config: {
-          maxAdsPerSession: config?.maxAdsPerSession || 10,
-          minTimeBetweenAds: config?.minTimeBetweenAds || 120,
-          newUserGracePeriod: config?.newUserGracePeriod || 15
+          maxAdsPerSession: parsedConfig?.maxAdsPerSession || 10,
+          minTimeBetweenAds: parsedConfig?.minTimeBetweenAds || 120,
+          newUserGracePeriod: parsedConfig?.newUserGracePeriod || 15
         }
       }
-    });
+    };
+    
+    console.log('[Ads Config] Final response:', JSON.stringify(response));
+    
+    return c.json(response);
   } catch (error) {
-    console.error('Get config error:', error);
-    // Return fallback configuration to prevent app crashes
+    console.error('[Ads Config] Error in /config endpoint:', error);
+    console.error('[Ads Config] Error stack:', error instanceof Error ? error.stack : 'No stack');
+    
+    // Return a safe default response instead of 500
     return c.json({ 
       success: true,
       data: {
         enabled: false,
         frequency: 15,
-        adUnitIds: { 
-          native: null, 
-          interstitial: null 
+        adUnitIds: {
+          native: undefined,
+          interstitial: undefined
         },
         isTestUser: false,
         userSegment: 'new',

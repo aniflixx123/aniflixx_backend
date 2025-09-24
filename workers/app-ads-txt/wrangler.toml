@@ -1,0 +1,8 @@
+name = "app-ads-txt"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+routes = [
+  { pattern = "aniflixx.com/app-ads.txt", zone_name = "aniflixx.com" },
+  { pattern = "www.aniflixx.com/app-ads.txt", zone_name = "aniflixx.com" }
+]
