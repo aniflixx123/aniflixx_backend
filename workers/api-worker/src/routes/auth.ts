@@ -533,36 +533,5 @@ authRouter.post('/refresh', async (c) => {
   }
 });
 
-// GET /api/test-auth - Verify token is valid
-authRouter.get('/test-auth', async (c:any) => {
-  try {
-    //authMiddleware sets c.set('user', user) if token is valid
-    const user = c.get('user');
-    
-    if (!user) {
-      return c.json({ 
-        success: false, 
-        error: 'Unauthorized' 
-      }, 401);
-    }
-    
-    // Token is valid, return success
-    return c.json({ 
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username
-      }
-    });
-    
-  } catch (error) {
-    console.error('Test auth error:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Invalid token' 
-    }, 401);
-  }
-});
 
 export { authRouter };
