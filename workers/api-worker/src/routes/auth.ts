@@ -482,6 +482,7 @@ authRouter.post('/reset-password', async (c) => {
 });
 
 // POST /api/auth/refresh - Refresh token
+// POST /api/auth/refresh - Refresh token
 authRouter.post('/refresh', async (c) => {
   try {
     const { refresh_token } = await c.req.json();
@@ -493,19 +494,34 @@ authRouter.post('/refresh', async (c) => {
       }, 400);
     }
 
+    console.log('Refresh token received, length:', refresh_token?.length);
+
     const supabase = getSupabaseClient(c.env);
     
-    // Use refreshSession instead of setSession
-    const { data, error }:any = await supabase.auth.refreshSession({
+    // Use refreshSession
+    const { data, error } = await supabase.auth.refreshSession({
       refresh_token: refresh_token
     });
 
-    if (error || !data.session) {
+    if (error || !data?.session) {
       console.error('Refresh error:', error);
       return c.json({ 
         success: false, 
         error: 'Invalid refresh token' 
       }, 401);
+    }
+
+    console.log('Refresh successful, has new tokens:', !!data.session.access_token, !!data.session.refresh_token);
+
+    // Get user email - it might be in data.user or data.session.user
+    const userEmail = data.user?.email || data.session?.user?.email;
+    
+    if (!userEmail) {
+      console.error('No user email in refresh response');
+      return c.json({ 
+        success: false, 
+        error: 'Failed to get user information' 
+      }, 500);
     }
 
     // Get user from database
@@ -515,7 +531,15 @@ authRouter.post('/refresh', async (c) => {
              posts_count, flicks_count, created_at
       FROM users 
       WHERE email = ?
-    `).bind(data.user.email).first();
+    `).bind(userEmail).first();
+
+    if (!dbUser) {
+      console.error('User not found in database:', userEmail);
+      return c.json({ 
+        success: false, 
+        error: 'User not found' 
+      }, 404);
+    }
 
     return c.json({
       success: true,
