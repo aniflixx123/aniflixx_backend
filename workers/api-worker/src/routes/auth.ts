@@ -482,7 +482,6 @@ authRouter.post('/reset-password', async (c) => {
 });
 
 // POST /api/auth/refresh - Refresh token
-// In workers/api-worker/src/routes/auth.ts
 authRouter.post('/refresh', async (c) => {
   try {
     const { refresh_token } = await c.req.json();
@@ -496,10 +495,9 @@ authRouter.post('/refresh', async (c) => {
 
     const supabase = getSupabaseClient(c.env);
     
-    // Use setSession to refresh the token
-    const { data, error }:any = await supabase.auth.setSession({
-      refresh_token: refresh_token,
-      access_token: '' // This will be ignored, Supabase will use refresh_token
+    // Use refreshSession instead of setSession
+    const { data, error }:any = await supabase.auth.refreshSession({
+      refresh_token: refresh_token
     });
 
     if (error || !data.session) {
@@ -517,7 +515,7 @@ authRouter.post('/refresh', async (c) => {
              posts_count, flicks_count, created_at
       FROM users 
       WHERE email = ?
-    `).bind(data.user.email!).first();
+    `).bind(data.user.email).first();
 
     return c.json({
       success: true,
