@@ -482,6 +482,7 @@ authRouter.post('/reset-password', async (c) => {
 });
 
 // POST /api/auth/refresh - Refresh token
+// In workers/api-worker/src/routes/auth.ts
 authRouter.post('/refresh', async (c) => {
   try {
     const { refresh_token } = await c.req.json();
@@ -490,20 +491,22 @@ authRouter.post('/refresh', async (c) => {
       return c.json({ 
         success: false, 
         error: 'Refresh token required' 
-      }, 401);
+      }, 400);
     }
-    
-    // Refresh session with Supabase using the refresh token
+
     const supabase = getSupabaseClient(c.env);
-    const { data, error }:any = await supabase.auth.refreshSession({
-      refresh_token: refresh_token
+    
+    // Use setSession to refresh the token
+    const { data, error }:any = await supabase.auth.setSession({
+      refresh_token: refresh_token,
+      access_token: '' // This will be ignored, Supabase will use refresh_token
     });
 
     if (error || !data.session) {
       console.error('Refresh error:', error);
       return c.json({ 
         success: false, 
-        error: 'Failed to refresh token' 
+        error: 'Invalid refresh token' 
       }, 401);
     }
 
@@ -511,8 +514,7 @@ authRouter.post('/refresh', async (c) => {
     const dbUser = await c.env.DB.prepare(`
       SELECT id, email, username, profile_image, bio, 
              is_verified, followers_count, following_count, 
-             posts_count, flicks_count, created_at, updated_at,
-             stripe_customer_id
+             posts_count, flicks_count, created_at
       FROM users 
       WHERE email = ?
     `).bind(data.user.email!).first();
