@@ -482,6 +482,57 @@ authRouter.post('/reset-password', async (c) => {
 });
 
 // POST /api/auth/refresh - Refresh token
+authRouter.post('/refresh', async (c) => {
+  try {
+    const { refresh_token } = await c.req.json();
+    
+    if (!refresh_token) {
+      return c.json({ 
+        success: false, 
+        error: 'Refresh token required' 
+      }, 401);
+    }
+    
+    // Refresh session with Supabase using the refresh token
+    const supabase = getSupabaseClient(c.env);
+    const { data, error }:any = await supabase.auth.refreshSession({
+      refresh_token: refresh_token
+    });
+
+    if (error || !data.session) {
+      console.error('Refresh error:', error);
+      return c.json({ 
+        success: false, 
+        error: 'Failed to refresh token' 
+      }, 401);
+    }
+
+    // Get user from database
+    const dbUser = await c.env.DB.prepare(`
+      SELECT id, email, username, profile_image, bio, 
+             is_verified, followers_count, following_count, 
+             posts_count, flicks_count, created_at, updated_at,
+             stripe_customer_id
+      FROM users 
+      WHERE email = ?
+    `).bind(data.user.email!).first();
+
+    return c.json({
+      success: true,
+      token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      user: dbUser
+    });
+
+  } catch (error: any) {
+    console.error('Refresh token error:', error);
+    return c.json({ 
+      success: false, 
+      error: 'Failed to refresh token' 
+    }, 500);
+  }
+});
+
 // POST /api/auth/refresh - Refresh token
 authRouter.post('/refresh', async (c) => {
   try {
@@ -511,7 +562,12 @@ authRouter.post('/refresh', async (c) => {
       }, 401);
     }
 
-    console.log('Refresh successful, has new tokens:', !!data.session.access_token, !!data.session.refresh_token);
+    console.log('Session refreshed:', {
+      hasAccessToken: !!data.session.access_token,
+      accessTokenLength: data.session.access_token?.length,
+      hasNewRefreshToken: !!data.session.refresh_token,
+      newRefreshTokenLength: data.session.refresh_token?.length
+    });
 
     // Get user email - it might be in data.user or data.session.user
     const userEmail = data.user?.email || data.session?.user?.email;
@@ -541,10 +597,18 @@ authRouter.post('/refresh', async (c) => {
       }, 404);
     }
 
+    // IMPORTANT: Use the original refresh token if Supabase doesn't return a new one
+    const refreshTokenToReturn = data.session.refresh_token || refresh_token;
+
+    console.log('Returning tokens:', {
+      hasAccessToken: !!data.session.access_token,
+      refreshTokenLength: refreshTokenToReturn.length
+    });
+
     return c.json({
       success: true,
       token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
+      refresh_token: refreshTokenToReturn, // Use original if no new one provided
       user: dbUser
     });
 
@@ -556,6 +620,5 @@ authRouter.post('/refresh', async (c) => {
     }, 500);
   }
 });
-
 
 export { authRouter };
