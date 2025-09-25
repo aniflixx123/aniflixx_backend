@@ -141,11 +141,11 @@ authRouter.post('/signup', async (c) => {
       WHERE id = ?
     `).bind(userId).first();
 
-    // FIX: Return both access token and refresh token
+    // Return both access token and refresh token
     return c.json({
       success: true,
       token: authData.session.access_token,
-      refresh_token: authData.session.refresh_token, // ADDED THIS
+      refresh_token: authData.session.refresh_token,
       user: {
         ...newUser,
         displayName: fullName || username,
@@ -240,11 +240,11 @@ authRouter.post('/login', async (c) => {
         WHERE id = ?
       `).bind(userId).first();
 
-      // FIX: Return both access token and refresh token for new user
+      // Return both access token and refresh token for new user
       return c.json({
         success: true,
         token: authData.session.access_token,
-        refresh_token: authData.session.refresh_token, // ADDED THIS
+        refresh_token: authData.session.refresh_token,
         user: newUser
       });
     }
@@ -257,11 +257,11 @@ authRouter.post('/login', async (c) => {
       }, 403);
     }
 
-    // FIX: Return both access token and refresh token for existing user
+    // Return both access token and refresh token for existing user
     return c.json({
       success: true,
       token: authData.session.access_token,
-      refresh_token: authData.session.refresh_token, // ADDED THIS
+      refresh_token: authData.session.refresh_token,
       user: dbUser
     });
 
@@ -481,59 +481,7 @@ authRouter.post('/reset-password', async (c) => {
   }
 });
 
-// POST /api/auth/refresh - Refresh token
-authRouter.post('/refresh', async (c) => {
-  try {
-    const { refresh_token } = await c.req.json();
-    
-    if (!refresh_token) {
-      return c.json({ 
-        success: false, 
-        error: 'Refresh token required' 
-      }, 401);
-    }
-    
-    // Refresh session with Supabase using the refresh token
-    const supabase = getSupabaseClient(c.env);
-    const { data, error }:any = await supabase.auth.refreshSession({
-      refresh_token: refresh_token
-    });
-
-    if (error || !data.session) {
-      console.error('Refresh error:', error);
-      return c.json({ 
-        success: false, 
-        error: 'Failed to refresh token' 
-      }, 401);
-    }
-
-    // Get user from database
-    const dbUser = await c.env.DB.prepare(`
-      SELECT id, email, username, profile_image, bio, 
-             is_verified, followers_count, following_count, 
-             posts_count, flicks_count, created_at, updated_at,
-             stripe_customer_id
-      FROM users 
-      WHERE email = ?
-    `).bind(data.user.email!).first();
-
-    return c.json({
-      success: true,
-      token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-      user: dbUser
-    });
-
-  } catch (error: any) {
-    console.error('Refresh token error:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Failed to refresh token' 
-    }, 500);
-  }
-});
-
-// POST /api/auth/refresh - Refresh token
+// FIXED: POST /api/auth/refresh - Refresh token (ONLY ONE DEFINITION)
 authRouter.post('/refresh', async (c) => {
   try {
     const { refresh_token } = await c.req.json();
@@ -569,8 +517,8 @@ authRouter.post('/refresh', async (c) => {
       newRefreshTokenLength: data.session.refresh_token?.length
     });
 
-    // Get user email - it might be in data.user or data.session.user
-    const userEmail = data.user?.email || data.session?.user?.email;
+    // FIXED: Consistently get user email from data.session.user
+    const userEmail = data.session.user?.email;
     
     if (!userEmail) {
       console.error('No user email in refresh response');
@@ -597,8 +545,9 @@ authRouter.post('/refresh', async (c) => {
       }, 404);
     }
 
-    // IMPORTANT: Use the original refresh token if Supabase doesn't return a new one
-    const refreshTokenToReturn = data.session.refresh_token || refresh_token;
+    // FIXED: Always use the new refresh token from Supabase
+    // Supabase should always return a new refresh token in a successful refresh
+    const refreshTokenToReturn = data.session.refresh_token;
 
     console.log('Returning tokens:', {
       hasAccessToken: !!data.session.access_token,
@@ -608,7 +557,7 @@ authRouter.post('/refresh', async (c) => {
     return c.json({
       success: true,
       token: data.session.access_token,
-      refresh_token: refreshTokenToReturn, // Use original if no new one provided
+      refresh_token: refreshTokenToReturn,
       user: dbUser
     });
 
