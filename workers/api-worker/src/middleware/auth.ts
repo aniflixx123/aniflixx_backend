@@ -1,3 +1,4 @@
+// workers/api-worker/src/middleware/auth.ts
 import type { Context, Next } from 'hono';
 import type { Env } from '../types';
 import { createClient } from '@supabase/supabase-js';
@@ -29,7 +30,27 @@ export async function authMiddleware(
     }
     
     const token = authHeader.substring(7);
-    console.log('Auth middleware: Token received (first 20 chars):', token.substring(0, 20));
+    
+    // CRITICAL FIX: Check for invalid token values
+    if (!token || token === 'null' || token === 'undefined' || token.trim() === '') {
+      console.error('Auth middleware: Invalid token format received:', token);
+      return c.json({ 
+        success: false, 
+        error: 'Invalid authentication token format' 
+      }, 401);
+    }
+    
+    // Add validation for JWT structure (should have 3 parts separated by dots)
+    const tokenParts = token.split('.');
+    if (tokenParts.length !== 3) {
+      console.error('Auth middleware: Malformed JWT token - expected 3 parts, got', tokenParts.length);
+      return c.json({ 
+        success: false, 
+        error: 'Malformed authentication token' 
+      }, 401);
+    }
+    
+    console.log('Auth middleware: Valid token received (first 20 chars):', token.substring(0, 20));
     
     // Create Supabase client with anon key
     const supabase = createClient(
@@ -47,10 +68,30 @@ export async function authMiddleware(
     const { data: { user: supabaseUser }, error } = await supabase.auth.getUser(token);
     
     if (error || !supabaseUser) {
-      console.error('Auth middleware: Supabase verification failed:', error);
+      const errorMessage = error?.message || 'Token verification failed';
+      console.error('Auth middleware: Supabase verification failed:', errorMessage);
+      
+      // Provide more specific error messages
+      if (errorMessage.includes('JWT expired')) {
+        return c.json({ 
+          success: false, 
+          error: 'Token expired',
+          code: 'TOKEN_EXPIRED'
+        }, 401);
+      }
+      
+      if (errorMessage.includes('invalid JWT')) {
+        return c.json({ 
+          success: false, 
+          error: 'Invalid authentication token',
+          code: 'INVALID_TOKEN'
+        }, 401);
+      }
+      
       return c.json({ 
         success: false, 
-        error: 'Invalid token' 
+        error: 'Authentication failed',
+        code: 'AUTH_FAILED'
       }, 401);
     }
     
@@ -141,7 +182,23 @@ export async function authMiddleware(
     
   } catch (error: any) {
     console.error('Auth middleware: Unexpected error:', error);
+    console.error('Auth middleware: Error message:', error.message);
     console.error('Auth middleware: Error stack:', error.stack);
+    
+    // Provide more specific error messages based on the error type
+    if (error.message?.includes('D1_ERROR')) {
+      return c.json({ 
+        success: false, 
+        error: 'Database error occurred' 
+      }, 500);
+    }
+    
+    if (error.message?.includes('SUPABASE')) {
+      return c.json({ 
+        success: false, 
+        error: 'Authentication service error' 
+      }, 500);
+    }
     
     return c.json({ 
       success: false, 
