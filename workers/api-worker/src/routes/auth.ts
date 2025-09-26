@@ -4,7 +4,6 @@ import type { Env } from '../types';
 import { createClient } from '@supabase/supabase-js';
 import { nanoid } from 'nanoid';
 import bcrypt from 'bcryptjs';
-import { cacheRefreshedToken } from '../middleware/auth';
 
 const authRouter = new Hono<{ Bindings: Env }>();
 
@@ -12,7 +11,7 @@ const authRouter = new Hono<{ Bindings: Env }>();
 function getSupabaseAdmin(env: Env) {
   return createClient(
     env.SUPABASE_URL,
-    env.SUPABASE_SERVICE_KEY, // Use service key for admin operations
+    env.SUPABASE_SERVICE_KEY,
     {
       auth: {
         persistSession: false,
@@ -111,6 +110,15 @@ authRouter.post('/signup', async (c) => {
       }, 500);
     }
 
+    // Verify refresh token exists
+    if (!authData.session.refresh_token) {
+      console.error('CRITICAL: No refresh token from Supabase signup. Check JWT expiry in Supabase dashboard.');
+      return c.json({
+        success: false,
+        error: 'Authentication configuration error. Please contact support.'
+      }, 500);
+    }
+
     // Create user in YOUR database
     const userId = nanoid();
     const passwordHash = await bcrypt.hash(password, 10);
@@ -198,6 +206,23 @@ authRouter.post('/login', async (c) => {
       }, 401);
     }
 
+    // CRITICAL: Verify refresh token exists
+    if (!authData.session.refresh_token) {
+      console.error('CRITICAL: No refresh token from Supabase login.');
+      console.error('Session details:', {
+        hasAccessToken: !!authData.session.access_token,
+        accessTokenLength: authData.session.access_token?.length,
+        expiresIn: authData.session.expires_in,
+        expiresAt: authData.session.expires_at
+      });
+      console.error('Check Supabase Dashboard → Authentication → Configuration → JWT expiry (should be 3600)');
+      
+      return c.json({
+        success: false,
+        error: 'Authentication configuration error. Please contact support.'
+      }, 500);
+    }
+
     // Fetch user from YOUR database
     const dbUser = await c.env.DB.prepare(`
       SELECT id, email, username, profile_image, bio, 
@@ -241,7 +266,6 @@ authRouter.post('/login', async (c) => {
         WHERE id = ?
       `).bind(userId).first();
 
-      // Return both access token and refresh token for new user
       return c.json({
         success: true,
         token: authData.session.access_token,
@@ -258,7 +282,7 @@ authRouter.post('/login', async (c) => {
       }, 403);
     }
 
-    // Return both access token and refresh token for existing user
+    // Return both access token and refresh token
     return c.json({
       success: true,
       token: authData.session.access_token,
@@ -281,14 +305,18 @@ authRouter.post('/logout', async (c) => {
     const authHeader = c.req.header('Authorization');
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return c.json({ success: true }); // Already logged out
+      return c.json({ success: true });
     }
 
     const token = authHeader.substring(7);
     
     // Sign out from Supabase
     const supabase = getSupabaseClient(c.env);
-    await supabase.auth.admin.signOut(token);
+    const { error } = await supabase.auth.signOut();
+    
+    if (error) {
+      console.error('Logout error:', error);
+    }
 
     return c.json({ 
       success: true, 
@@ -297,12 +325,11 @@ authRouter.post('/logout', async (c) => {
 
   } catch (error: any) {
     console.error('Logout error:', error);
-    // Return success anyway - user wants to log out
     return c.json({ success: true });
   }
 });
 
-// GET /api/auth/profile - Get current user profile
+// GET /api/auth/profile
 authRouter.get('/profile', async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
@@ -358,7 +385,7 @@ authRouter.get('/profile', async (c) => {
   }
 });
 
-// PUT /api/auth/profile - Update user profile
+// PUT /api/auth/profile
 authRouter.put('/profile', async (c) => {
   try {
     const authHeader = c.req.header('Authorization');
@@ -482,14 +509,14 @@ authRouter.post('/reset-password', async (c) => {
   }
 });
 
-// workers/api-worker/src/routes/auth.ts
+// POST /api/auth/refresh
 authRouter.post('/refresh', async (c) => {
   try {
     const body = await c.req.json();
     const { refresh_token } = body;
     
-    // Better validation
-    if (!refresh_token || typeof refresh_token !== 'string' || refresh_token.length < 20) {
+    // Validate refresh token
+    if (!refresh_token || typeof refresh_token !== 'string') {
       console.error('Invalid refresh token received:', {
         exists: !!refresh_token,
         type: typeof refresh_token,
@@ -497,18 +524,26 @@ authRouter.post('/refresh', async (c) => {
       });
       return c.json({ 
         success: false, 
+        error: 'Refresh token is required' 
+      }, 400);
+    }
+
+    // Check for the problematic 12-character token
+    if (refresh_token.length < 20) {
+      console.error('CRITICAL: Received invalid short refresh token:', refresh_token);
+      console.error('This indicates Supabase is not issuing proper refresh tokens.');
+      console.error('Check Supabase Dashboard → Authentication → Configuration → JWT expiry');
+      return c.json({ 
+        success: false, 
         error: 'Invalid refresh token format' 
       }, 400);
     }
 
-    console.log('Refresh token received:', {
-      length: refresh_token.length,
-      first20: refresh_token.substring(0, 20)
-    });
+    console.log('Refreshing token, refresh_token length:', refresh_token.length);
 
     const supabase = getSupabaseClient(c.env);
     
-    // Use the correct method with proper typing
+    // Use refreshSession to get new tokens
     const { data, error } = await supabase.auth.refreshSession({
       refresh_token: refresh_token
     });
@@ -521,18 +556,15 @@ authRouter.post('/refresh', async (c) => {
       }, 401);
     }
 
-    // CRITICAL FIX: Make sure we're getting the actual tokens
-    const newAccessToken = data.session.access_token;
-    const newRefreshToken = data.session.refresh_token;
-    
-    if (!newAccessToken || !newRefreshToken) {
+    // Verify we got both tokens
+    if (!data.session.access_token || !data.session.refresh_token) {
       console.error('Missing tokens in refresh response:', {
-        hasAccess: !!newAccessToken,
-        hasRefresh: !!newRefreshToken
+        hasAccess: !!data.session.access_token,
+        hasRefresh: !!data.session.refresh_token
       });
       return c.json({ 
         success: false, 
-        error: 'Failed to get new tokens' 
+        error: 'Failed to refresh session' 
       }, 500);
     }
 
@@ -560,16 +592,15 @@ authRouter.post('/refresh', async (c) => {
       }, 404);
     }
 
-    // Log the actual token lengths
-    console.log('Returning tokens:', {
-      accessTokenLength: newAccessToken.length,
-      refreshTokenLength: newRefreshToken.length  // This should be 40+ chars
+    console.log('Token refresh successful, new token lengths:', {
+      accessToken: data.session.access_token.length,
+      refreshToken: data.session.refresh_token.length
     });
 
     return c.json({
       success: true,
-      token: newAccessToken,
-      refresh_token: newRefreshToken,  // Make sure this is the full token
+      token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
       user: dbUser
     });
 
