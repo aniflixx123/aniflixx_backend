@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "@tsndr/cloudflare-worker-jwt": "^3.2.0",
     "bcryptjs": "^3.0.2",
     "hono": "^4.8.10",
     "nanoid": "^5.0.4",

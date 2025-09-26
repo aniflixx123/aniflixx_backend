@@ -4,6 +4,7 @@ import type { Env } from '../types';
 import { createClient } from '@supabase/supabase-js';
 import { nanoid } from 'nanoid';
 import bcrypt from 'bcryptjs';
+import { cacheRefreshedToken } from '../middleware/auth';
 
 const authRouter = new Hono<{ Bindings: Env }>();
 
@@ -481,7 +482,6 @@ authRouter.post('/reset-password', async (c) => {
   }
 });
 
-// FIXED: POST /api/auth/refresh - Refresh token (ONLY ONE DEFINITION)
 authRouter.post('/refresh', async (c) => {
   try {
     const { refresh_token } = await c.req.json();
@@ -517,7 +517,6 @@ authRouter.post('/refresh', async (c) => {
       newRefreshTokenLength: data.session.refresh_token?.length
     });
 
-    // FIXED: Consistently get user email from data.session.user
     const userEmail = data.session.user?.email;
     
     if (!userEmail) {
@@ -527,6 +526,9 @@ authRouter.post('/refresh', async (c) => {
         error: 'Failed to get user information' 
       }, 500);
     }
+
+    // Cache this token for a brief period to avoid Supabase sync issues
+    cacheRefreshedToken(data.session.access_token, userEmail);
 
     // Get user from database
     const dbUser = await c.env.DB.prepare(`
@@ -545,8 +547,6 @@ authRouter.post('/refresh', async (c) => {
       }, 404);
     }
 
-    // FIXED: Always use the new refresh token from Supabase
-    // Supabase should always return a new refresh token in a successful refresh
     const refreshTokenToReturn = data.session.refresh_token;
 
     console.log('Returning tokens:', {

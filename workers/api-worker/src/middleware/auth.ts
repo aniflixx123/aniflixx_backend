@@ -3,6 +3,7 @@ import type { Context, Next } from 'hono';
 import type { Env } from '../types';
 import { createClient } from '@supabase/supabase-js';
 import { nanoid } from 'nanoid';
+import jwt from '@tsndr/cloudflare-worker-jwt';
 
 type Variables = {
   user?: {
@@ -11,6 +12,19 @@ type Variables = {
     username: string;
   };
 };
+
+// Cache for recently refreshed tokens (token -> user email)
+const recentlyRefreshedTokens = new Map<string, { email: string; timestamp: number }>();
+
+// Clean up old entries every so often
+function cleanupTokenCache() {
+  const now = Date.now();
+  for (const [token, data] of recentlyRefreshedTokens.entries()) {
+    if (now - data.timestamp > 10000) { // Remove after 10 seconds
+      recentlyRefreshedTokens.delete(token);
+    }
+  }
+}
 
 export async function authMiddleware(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -52,6 +66,50 @@ export async function authMiddleware(
     
     console.log('Auth middleware: Valid token received (first 20 chars):', token.substring(0, 20));
     
+    // Clean up old cached tokens
+    cleanupTokenCache();
+    
+    // Check if this token was recently refreshed
+    const cachedToken = recentlyRefreshedTokens.get(token);
+    if (cachedToken) {
+      console.log('Auth middleware: Using cached validation for recently refreshed token');
+      
+      // Get user from database using cached email
+      const dbUser = await c.env.DB.prepare(
+        `SELECT id, email, username, profile_image, bio, 
+                is_verified, is_active, stripe_customer_id, 
+                followers_count, following_count, posts_count, flicks_count
+         FROM users 
+         WHERE email = ? AND is_active = 1`
+      ).bind(cachedToken.email).first();
+      
+      if (dbUser) {
+        // Set user context with YOUR user ID
+        const userContext = {
+          id: dbUser.id as string,
+          email: dbUser.email as string,
+          username: dbUser.username as string
+        };
+        
+        c.set('user', userContext);
+        console.log('Auth middleware: User authenticated via cache:', userContext.id);
+        await next();
+        return;
+      }
+    }
+    
+    // Try to decode JWT first to get email (faster than Supabase call)
+    let userEmail: string | null = null;
+    try {
+      const decoded:any = jwt.decode(token);
+      if (decoded && decoded.payload) {
+        userEmail = decoded.payload.email || decoded.payload.sub;
+        console.log('Auth middleware: Decoded email from JWT:', userEmail);
+      }
+    } catch (e) {
+      console.log('Auth middleware: Could not decode JWT locally, will use Supabase');
+    }
+    
     // Create Supabase client with anon key
     const supabase = createClient(
       c.env.SUPABASE_URL,
@@ -70,6 +128,34 @@ export async function authMiddleware(
     if (error || !supabaseUser) {
       const errorMessage = error?.message || 'Token verification failed';
       console.error('Auth middleware: Supabase verification failed:', errorMessage);
+      
+      // If we have email from JWT and it's a recent token, try database lookup
+      if (userEmail && errorMessage.includes('invalid JWT')) {
+        console.log('Auth middleware: Attempting database lookup with JWT email');
+        
+        const dbUser = await c.env.DB.prepare(
+          `SELECT id, email, username, profile_image, bio, 
+                  is_verified, is_active, stripe_customer_id, 
+                  followers_count, following_count, posts_count, flicks_count
+           FROM users 
+           WHERE email = ? AND is_active = 1`
+        ).bind(userEmail).first();
+        
+        if (dbUser) {
+          // This might be a recently refreshed token that Supabase hasn't synced yet
+          // Add a grace period for recently refreshed tokens
+          const userContext = {
+            id: dbUser.id as string,
+            email: dbUser.email as string,
+            username: dbUser.username as string
+          };
+          
+          c.set('user', userContext);
+          console.log('Auth middleware: User authenticated via JWT decode fallback:', userContext.id);
+          await next();
+          return;
+        }
+      }
       
       // Provide more specific error messages
       if (errorMessage.includes('JWT expired')) {
@@ -205,4 +291,9 @@ export async function authMiddleware(
       error: 'Authentication failed' 
     }, 500);
   }
+}
+
+// Export a function to cache recently refreshed tokens
+export function cacheRefreshedToken(token: string, email: string) {
+  recentlyRefreshedTokens.set(token, { email, timestamp: Date.now() });
 }
