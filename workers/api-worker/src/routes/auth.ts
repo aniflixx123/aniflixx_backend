@@ -482,55 +482,69 @@ authRouter.post('/reset-password', async (c) => {
   }
 });
 
+// workers/api-worker/src/routes/auth.ts
 authRouter.post('/refresh', async (c) => {
   try {
-    const { refresh_token } = await c.req.json();
+    const body = await c.req.json();
+    const { refresh_token } = body;
     
-    if (!refresh_token) {
+    // Better validation
+    if (!refresh_token || typeof refresh_token !== 'string' || refresh_token.length < 20) {
+      console.error('Invalid refresh token received:', {
+        exists: !!refresh_token,
+        type: typeof refresh_token,
+        length: refresh_token?.length
+      });
       return c.json({ 
         success: false, 
-        error: 'Refresh token required' 
+        error: 'Invalid refresh token format' 
       }, 400);
     }
 
-    console.log('Refresh token received, length:', refresh_token?.length);
+    console.log('Refresh token received:', {
+      length: refresh_token.length,
+      first20: refresh_token.substring(0, 20)
+    });
 
     const supabase = getSupabaseClient(c.env);
     
-    // Use refreshSession
+    // Use the correct method with proper typing
     const { data, error } = await supabase.auth.refreshSession({
       refresh_token: refresh_token
     });
 
     if (error || !data?.session) {
-      console.error('Refresh error:', error);
+      console.error('Supabase refresh error:', error);
       return c.json({ 
         success: false, 
-        error: 'Invalid refresh token' 
+        error: error?.message || 'Invalid refresh token' 
       }, 401);
     }
 
-    console.log('Session refreshed:', {
-      hasAccessToken: !!data.session.access_token,
-      accessTokenLength: data.session.access_token?.length,
-      hasNewRefreshToken: !!data.session.refresh_token,
-      newRefreshTokenLength: data.session.refresh_token?.length
-    });
-
-    const userEmail = data.session.user?.email;
+    // CRITICAL FIX: Make sure we're getting the actual tokens
+    const newAccessToken = data.session.access_token;
+    const newRefreshToken = data.session.refresh_token;
     
+    if (!newAccessToken || !newRefreshToken) {
+      console.error('Missing tokens in refresh response:', {
+        hasAccess: !!newAccessToken,
+        hasRefresh: !!newRefreshToken
+      });
+      return c.json({ 
+        success: false, 
+        error: 'Failed to get new tokens' 
+      }, 500);
+    }
+
+    // Get user from database
+    const userEmail = data.session.user?.email;
     if (!userEmail) {
-      console.error('No user email in refresh response');
       return c.json({ 
         success: false, 
         error: 'Failed to get user information' 
       }, 500);
     }
 
-    // Cache this token for a brief period to avoid Supabase sync issues
-    cacheRefreshedToken(data.session.access_token, userEmail);
-
-    // Get user from database
     const dbUser = await c.env.DB.prepare(`
       SELECT id, email, username, profile_image, bio, 
              is_verified, followers_count, following_count, 
@@ -540,24 +554,22 @@ authRouter.post('/refresh', async (c) => {
     `).bind(userEmail).first();
 
     if (!dbUser) {
-      console.error('User not found in database:', userEmail);
       return c.json({ 
         success: false, 
         error: 'User not found' 
       }, 404);
     }
 
-    const refreshTokenToReturn = data.session.refresh_token;
-
+    // Log the actual token lengths
     console.log('Returning tokens:', {
-      hasAccessToken: !!data.session.access_token,
-      refreshTokenLength: refreshTokenToReturn.length
+      accessTokenLength: newAccessToken.length,
+      refreshTokenLength: newRefreshToken.length  // This should be 40+ chars
     });
 
     return c.json({
       success: true,
-      token: data.session.access_token,
-      refresh_token: refreshTokenToReturn,
+      token: newAccessToken,
+      refresh_token: newRefreshToken,  // Make sure this is the full token
       user: dbUser
     });
 
@@ -565,7 +577,7 @@ authRouter.post('/refresh', async (c) => {
     console.error('Refresh token error:', error);
     return c.json({ 
       success: false, 
-      error: 'Failed to refresh token' 
+      error: error.message || 'Failed to refresh token' 
     }, 500);
   }
 });
