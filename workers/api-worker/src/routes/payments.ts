@@ -401,7 +401,7 @@ router.post('/checkout/mobile-session', async (c) => {
       JSON.stringify({ platform: device.platform })
     ).run();
 
-    const checkoutUrl = `${c.env.FRONTEND_URL}/subscribe?session=${sessionToken}`;
+    const checkoutUrl = `${c.env.FRONTEND_URL}/billing?session=${sessionToken}`;
 
     console.log(`Checkout session created for user ${user.id}: ${sessionToken}`);
 
