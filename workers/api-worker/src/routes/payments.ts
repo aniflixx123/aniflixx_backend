@@ -384,7 +384,7 @@ router.post('/checkout/mobile-session', async (c) => {
     // Create new checkout session
     const sessionToken = `sess_${nanoid(32)}`;
     const sessionId = nanoid();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
 
     await c.env.DB.prepare(`
       INSERT INTO checkout_sessions (
