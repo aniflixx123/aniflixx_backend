@@ -440,7 +440,7 @@ router.delete('/:commentId', async (c) => {
       c.env.DB.prepare('DELETE FROM post_comment_likes WHERE comment_id = ?').bind(commentId),
       // Update post comment count
       c.env.DB.prepare(
-        'UPDATE posts SET comments_count = GREATEST(0, comments_count - 1) WHERE id = ?'
+             'UPDATE posts SET comments_count = CASE WHEN comments_count > 0 THEN comments_count - 1 ELSE 0 END WHERE id = ?'
       ).bind(comment.post_id)
     ]);
 

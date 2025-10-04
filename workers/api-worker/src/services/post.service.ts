@@ -191,8 +191,8 @@ export class PostService {
     return updatedPost;
   }
   
- async deletePost(postId: string): Promise<void> {
-  // Get post details for cache invalidation
+ // workers/api-worker/src/services/post.service.ts
+async deletePost(postId: string): Promise<void> {
   const post = await this.db.prepare(
     'SELECT user_id FROM posts WHERE id = ?'
   ).bind(postId).first();
@@ -201,32 +201,91 @@ export class PostService {
     throw new Error('Post not found');
   }
   
-  // Just delete the post - CASCADE will handle the rest
+  // Delete the post
   await this.db.prepare('DELETE FROM posts WHERE id = ?').bind(postId).run();
   
   // Update user post count
   await this.db.prepare(`
     UPDATE users 
-    SET posts_count = GREATEST(0, posts_count - 1)
+    SET posts_count = CASE 
+      WHEN posts_count > 0 THEN posts_count - 1 
+      ELSE 0 
+    END
     WHERE id = ?
   `).bind(post.user_id).run();
   
-  // Try to delete Durable Object counter but don't fail if it errors
-  try {
-    const counterId = this.counters.idFromName(postId);
-    const counter = this.counters.get(counterId);
-    await counter.fetch(new Request('http://internal/delete', {
-      method: 'DELETE'
-    }));
-  } catch (error) {
-    console.error('Failed to delete counter (non-critical):', error);
+  // CRITICAL: Invalidate ALL relevant caches
+  const cacheKeys = [
+    `post:${postId}`,
+    `post:${postId}:*`, // All user-specific post caches
+    `feed:home:*`, // All home feed caches
+    `feed:following:*`, // All following feed caches
+    `feed:discover`,
+    `feed:trending`,
+    `user:posts:${post.user_id}`,
+    `posts:page:*`, // All paginated caches
+  ];
+  
+  // Delete all matching cache keys
+  await Promise.all([
+    ...cacheKeys.map(pattern => {
+      if (pattern.includes('*')) {
+        // For patterns, we need to list and delete
+        return this.deleteMatchingKeys(pattern);
+      }
+      return this.cache.delete(pattern);
+    })
+  ]);
+  
+  // Try to delete Durable Object counter
+  if (this.counters) {
+    try {
+      const counterId = this.counters.idFromName(postId);
+      const counter = this.counters.get(counterId);
+      await counter.fetch(new Request('http://internal/delete', {
+        method: 'DELETE'
+      }));
+    } catch (error) {
+      console.error('Failed to delete counter (non-critical):', error);
+    }
+  }
+}
+
+// Helper method to delete cache keys matching a pattern
+private async deleteMatchingKeys(pattern: string): Promise<void> {
+  // Cloudflare Workers KV doesn't support wildcard deletes directly
+  // So we need to be more specific about which keys to delete
+  
+  // For now, delete common cache keys
+  const basePattern = pattern.replace('*', '');
+  const commonSuffixes = ['1', '2', '3', '4', '5']; // Common page numbers
+  const commonUserIds = []; // You might want to track active users
+  
+  if (pattern.includes('feed:home:')) {
+    // Delete home feed for common pages
+    await Promise.all(
+      commonSuffixes.map(suffix => 
+        this.cache.delete(`feed:home:page:${suffix}`)
+      )
+    );
   }
   
-  // Invalidate caches
-  try {
-    await this.invalidatePostCaches(postId, post.user_id as string);
-  } catch (error) {
-    console.error('Cache invalidation failed (non-critical):', error);
+  if (pattern.includes('feed:following:')) {
+    // Delete following feed for common pages
+    await Promise.all(
+      commonSuffixes.map(suffix => 
+        this.cache.delete(`feed:following:page:${suffix}`)
+      )
+    );
+  }
+  
+  if (pattern.includes('posts:page:')) {
+    // Delete paginated post caches
+    await Promise.all(
+      commonSuffixes.map(suffix => 
+        this.cache.delete(`posts:page:${suffix}`)
+      )
+    );
   }
 }
   

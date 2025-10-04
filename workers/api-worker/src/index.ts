@@ -123,7 +123,7 @@ app.get('/api/flicks/trending', async (c) => {
   }
 });
 
-// Public clan endpoints (some clan endpoints should be public)
+// Public clan endpoints
 app.get('/api/clans/discover', async (c) => {
   const { ClanService } = await import('./services/clan.service');
   const clanService = new ClanService(c.env.DB, c.env.CACHE);
@@ -135,7 +135,7 @@ app.get('/api/clans/discover', async (c) => {
     const result = await clanService.discoverClans({
       page,
       limit,
-      userId: undefined // Public discovery
+      userId: undefined
     });
     
     return c.json({
@@ -174,7 +174,6 @@ app.get('/api/clans/trending', async (c) => {
   }
 });
 
-// Public clan details (allow viewing clan details without auth)
 app.get('/api/clans/:id', async (c) => {
   const { ClanService } = await import('./services/clan.service');
   const clanService = new ClanService(c.env.DB, c.env.CACHE);
@@ -198,18 +197,46 @@ app.get('/api/clans/:id', async (c) => {
   }
 });
 
+app.get('/api/payments/config', async (c:any) => {
+  const { paymentsRouter } = await import('./routes/payments');
+  // Pass the request to the payments router
+  const response = await paymentsRouter.request(c.req.raw, c.env, c.executionCtx);
+  return response;
+});
+
+app.get('/api/payments/prices', async (c:any) => {
+  const { paymentsRouter } = await import('./routes/payments');
+  const response = await paymentsRouter.request(c.req.raw, c.env, c.executionCtx);
+  return response;
+});
+
+// Auth routes (public)
 app.route('/api/auth', authRouter);
-// Protected routes - require authentication
-app.route('/api/payments', paymentsRouter);
+
+// CRITICAL FIX: Apply auth middleware BEFORE mounting protected routers
 app.use('/api/*', async (c, next) => {
-  // Skip auth for webhook endpoint
-  if (c.req.path === '/api/payments/stripe-webhook') {
+  // Skip auth for public endpoints
+  const publicPaths = [
+    '/api/auth/',
+    '/api/payments/config',
+    '/api/payments/stripe-webhook',
+    '/api/feed/trending',
+    '/api/flicks/trending',
+    '/api/clans/trending',
+    '/api/clans/discover'
+  ];
+  
+  const isPublicPath = publicPaths.some(path => c.req.path.startsWith(path));
+  
+  if (isPublicPath) {
     return next();
   }
+  
   return authMiddleware(c, next);
 });
 
-// Mount routers
+// Protected routes - mount AFTER auth middleware
+app.route('/api/payments', paymentsRouter);
 app.route('/api/posts', postsRouter);
 app.route('/api/users', usersRouter);
 app.route('/api/feed', feedRouter);
@@ -221,6 +248,21 @@ app.route('/api/analytics', analyticsRouter);
 app.route('/api/media', mediaRouter);
 app.route('/api/clans', clansRouter);
 app.route('/api/ads', adsRouter);
+
+// Test auth endpoint
+app.get('/api/test-auth', authMiddleware, async (c) => {
+  const user: any = c.get('user');
+  return c.json({
+    success: true,
+    message: 'Supabase auth is working!',
+    user: {
+      id: user.id,
+      email: user.email,
+      username: user.username
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 
 // 404 handler
 app.notFound((c) => {
@@ -450,17 +492,4 @@ export class ViewerTracker implements DurableObject {
   }
 }
 
-app.get('/api/test-auth', authMiddleware, async (c) => {
-  const user:any = c.get('user');
-  return c.json({
-    success: true,
-    message: 'Supabase auth is working!',
-    user: {
-      id: user.id,
-      email: user.email,
-      username: user.username
-    },
-    timestamp: new Date().toISOString()
-  });
-});
 export default app;

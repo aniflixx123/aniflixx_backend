@@ -194,11 +194,12 @@ adsRouter.get('/config', async (c) => {
     let hasSubscription = false;
     try {
       const subscription = await c.env.DB.prepare(`
-        SELECT * FROM subscriptions 
-        WHERE user_id = ? AND status = 'active' 
-        AND (expires_at IS NULL OR expires_at > datetime('now'))
-        LIMIT 1
-      `).bind(user.id).first();
+  SELECT * FROM user_subscriptions 
+  WHERE user_id = ? 
+  AND status IN ('active', 'trialing')
+  AND (current_period_end IS NULL OR current_period_end > datetime('now'))
+  LIMIT 1
+`).bind(user.id).first();
       
       hasSubscription = !!subscription;
       console.log('[Ads Config] Subscription check:', hasSubscription ? 'active' : 'none');
